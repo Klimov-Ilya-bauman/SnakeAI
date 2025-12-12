@@ -122,7 +122,7 @@ class SnakeDatabase:
             ''')
         row = cursor.fetchone()
         if row:
-            return np.frombuffer(row[0], dtype=np.float64)
+            return np.frombuffer(row[0], dtype=np.float32)
         return None
 
     def get_simulation_stats(self, simulation_id):

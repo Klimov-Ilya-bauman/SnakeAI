@@ -1,8 +1,12 @@
 """
-DQN Агент v6 - упрощённая версия.
-- 11 входов (бинарные признаки)
-- Меньшая сеть
-- Простые награды
+DQN Agent - строго по статье Mnih et al. 2013/2015
+"Playing Atari with Deep Reinforcement Learning"
+
+Ключевые элементы:
+- Experience Replay (random sampling)
+- Target Network (обновляется каждые C шагов)
+- Линейный epsilon decay (не экспоненциальный)
+- Reward clipping [-1, 1]
 """
 import numpy as np
 import tensorflow as tf
@@ -11,46 +15,66 @@ import random
 
 
 class DQNAgent:
-    def __init__(self, state_size=11, action_size=3):
+    def __init__(self, state_size, action_size):
         self.state_size = state_size
         self.action_size = action_size
 
-        # Гиперпараметры
-        self.gamma = 0.95
-        self.epsilon = 1.0
-        self.epsilon_min = 0.01
-        self.epsilon_decay = 0.995  # Быстрее decay для простой задачи
-        self.learning_rate = 0.001
-        self.batch_size = 64
+        # === Гиперпараметры из статьи ===
+        self.gamma = 0.99                    # Discount factor (статья: 0.99)
+        self.learning_rate = 0.00025         # Learning rate (статья: 0.00025)
+        self.batch_size = 32                 # Minibatch size (статья: 32)
+        self.memory_size = 100000            # Replay memory (статья: 1M, уменьшено для змейки)
 
-        self.target_update_freq = 100
+        # Epsilon: линейный decay от 1.0 до 0.1
+        self.epsilon = 1.0                   # Initial exploration (статья: 1.0)
+        self.epsilon_min = 0.1               # Final exploration (статья: 0.1)
+        self.epsilon_decay_steps = 50000     # Шаги для decay (статья: 1M, уменьшено)
+
+        # Target network update
+        self.target_update_freq = 1000       # Каждые C шагов (статья: 10000, уменьшено)
+
+        # Счётчики
         self.train_step = 0
+        self.total_steps = 0
 
-        self.memory = deque(maxlen=100000)
+        # Replay memory
+        self.memory = deque(maxlen=self.memory_size)
 
+        # Сети
         self.model = self._build_model()
         self.target_model = self._build_model()
         self.update_target_model()
 
     def _build_model(self):
+        """Нейросеть для Q-function"""
         model = tf.keras.Sequential([
             tf.keras.layers.Dense(256, input_dim=self.state_size, activation='relu'),
             tf.keras.layers.Dense(256, activation='relu'),
             tf.keras.layers.Dense(self.action_size, activation='linear')
         ])
-        model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate),
-            loss='mse'
+
+        # RMSprop использовался в оригинальной статье, но Adam тоже хорошо работает
+        optimizer = tf.keras.optimizers.RMSprop(
+            learning_rate=self.learning_rate,
+            rho=0.95,       # Статья: 0.95
+            epsilon=0.01    # Статья: 0.01
         )
+
+        model.compile(optimizer=optimizer, loss='huber')  # Huber = clipped MSE из статьи
         return model
 
     def update_target_model(self):
+        """Копируем веса из online сети в target сеть"""
         self.target_model.set_weights(self.model.get_weights())
 
     def remember(self, state, action, reward, next_state, done):
+        """Сохраняем transition в replay memory"""
+        # Reward clipping [-1, 1] (как в статье)
+        reward = np.clip(reward, -1.0, 1.0)
         self.memory.append((state, action, reward, next_state, done))
 
     def act(self, state, training=True):
+        """Epsilon-greedy policy"""
         if training and np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
 
@@ -59,11 +83,13 @@ class DQNAgent:
         return np.argmax(q_values[0])
 
     def replay(self):
+        """Experience replay - обучение на случайной выборке из памяти"""
         if len(self.memory) < self.batch_size:
             return
 
         self.train_step += 1
 
+        # Случайная выборка из памяти
         batch = random.sample(self.memory, self.batch_size)
 
         states = np.array([t[0] for t in batch])
@@ -72,26 +98,33 @@ class DQNAgent:
         next_states = np.array([t[3] for t in batch])
         dones = np.array([t[4] for t in batch])
 
-        # Double DQN: выбираем действие через online сеть, оцениваем через target
-        # Оптимизация: один predict для next_states (обе сети)
-        next_q_online = self.model.predict(next_states, verbose=0)
-        next_q_target = self.target_model.predict(next_states, verbose=0)
+        # Q-values от target network (как в статье)
+        target_q = self.target_model.predict(next_states, verbose=0)
         current_q = self.model.predict(states, verbose=0)
 
-        # Vectorized target calculation
-        next_actions = np.argmax(next_q_online, axis=1)
-
+        # Bellman update
         for i in range(self.batch_size):
             if dones[i]:
                 current_q[i][actions[i]] = rewards[i]
             else:
-                current_q[i][actions[i]] = rewards[i] + self.gamma * next_q_target[i][next_actions[i]]
+                # Q(s,a) = r + γ * max_a' Q_target(s', a')
+                current_q[i][actions[i]] = rewards[i] + self.gamma * np.max(target_q[i])
 
+        # Gradient descent step
         self.model.fit(states, current_q, epochs=1, verbose=0, batch_size=self.batch_size)
 
-    def decay_epsilon(self):
-        """Epsilon decay на каждом шаге"""
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        # Update target network каждые C шагов (как в статье)
+        if self.train_step % self.target_update_freq == 0:
+            self.update_target_model()
+            print(f"    [Target network updated at step {self.train_step}]")
+
+    def step_epsilon(self):
+        """Линейный epsilon decay (как в статье)"""
+        self.total_steps += 1
+        if self.epsilon > self.epsilon_min:
+            # Линейное уменьшение
+            decay = (1.0 - self.epsilon_min) / self.epsilon_decay_steps
+            self.epsilon = max(self.epsilon_min, self.epsilon - decay)
 
     def save(self, path):
         self.model.save(path)

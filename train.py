@@ -11,6 +11,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import time
+import numpy as np
 from datetime import datetime
 from genetic import GeneticAlgorithm
 from database import SnakeDatabase
@@ -96,6 +97,9 @@ def train(epochs=500,
     best_ever = 0
     start_time = time.time()
 
+    # Папка для моделей
+    os.makedirs("models", exist_ok=True)
+
     def on_generation(stats, top_snakes):
         nonlocal best_ever
 
@@ -125,11 +129,18 @@ def train(epochs=500,
                 tf.summary.scalar('population', stats['population_size'], step=stats['generation'])
             writer.flush()
 
-        # Новый рекорд
+        # Новый рекорд - СОХРАНЯЕМ СРАЗУ!
         if stats['best_score'] > best_ever:
             best_ever = stats['best_score']
             pct = (best_ever / win_score) * 100
             print(f"*** NEW BEST: {best_ever}/{win_score} ({pct:.1f}%) - gen {stats['generation']}")
+
+            # Автосохранение лучших весов при новом рекорде
+            if ga.best_weights is not None:
+                record_path = f"models/best_record_{best_ever}.npy"
+                np.save(record_path, ga.best_weights)
+                # Также сохраняем лучших змеек в БД
+                db.save_best_snakes(sim_id, stats['generation'], top_snakes[:5])
 
     # Эволюция
     for epoch in range(epochs):

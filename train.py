@@ -4,8 +4,10 @@
 
 + Многопоточность (multiprocessing)
 + Один информативный TensorBoard график
++ Продолжение обучения с лучших весов
 """
 import os
+import glob
 
 # Отключаем лишние логи TensorFlow (используется только для TensorBoard)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -17,6 +19,27 @@ from genetic import GeneticAlgorithm
 from database import SnakeDatabase
 
 
+def find_best_weights():
+    """Найти лучшие сохранённые веса"""
+    patterns = ["models/best_record_*.npy"]
+    best_score = 0
+    best_path = None
+
+    for pattern in patterns:
+        for path in glob.glob(pattern):
+            # Извлекаем score из имени файла: best_record_25.npy → 25
+            try:
+                filename = os.path.basename(path)
+                score = int(filename.replace("best_record_", "").replace(".npy", ""))
+                if score > best_score:
+                    best_score = score
+                    best_path = path
+            except:
+                continue
+
+    return best_path, best_score
+
+
 def train(epochs=500,
           population_size=2000,
           top_k=20,
@@ -25,6 +48,7 @@ def train(epochs=500,
           layer_sizes=(32, 12, 8, 4),
           save_every=10,
           use_tensorboard=True,
+          continue_training=True,
           name=None):
     """
     Основной цикл обучения
@@ -37,6 +61,7 @@ def train(epochs=500,
     layer_sizes: архитектура сети
     save_every: сохранять лучших каждые N поколений
     use_tensorboard: включить TensorBoard логирование
+    continue_training: продолжить с лучших весов (если есть)
     """
     # База данных
     db = SnakeDatabase()
@@ -88,14 +113,26 @@ def train(epochs=500,
         grid_size=grid_size
     )
 
+    # Загрузка лучших весов (если есть и continue_training=True)
+    seed_weights = None
+    best_ever = 0
+
+    if continue_training:
+        weights_path, prev_score = find_best_weights()
+        if weights_path:
+            seed_weights = np.load(weights_path)
+            best_ever = prev_score
+            print(f">>> ПРОДОЛЖЕНИЕ ОБУЧЕНИЯ <<<")
+            print(f"Загружены веса: {weights_path}")
+            print(f"Предыдущий рекорд: {prev_score}/{win_score}")
+            print()
+
     # Начальная популяция
     print("Создание начальной популяции...")
-    ga.create_initial_population()
+    ga.create_initial_population(seed_weights=seed_weights)
     print(f"Создано {len(ga.population)} змеек")
     print(f"Процессов: {ga.num_workers}")
     print()
-
-    best_ever = 0
     start_time = time.time()
 
     # Папка для моделей

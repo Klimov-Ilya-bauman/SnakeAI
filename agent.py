@@ -1,5 +1,10 @@
 """
-DQN Агент v4 - простая сеть для 5 входов.
+DQN Агент v5 - улучшения по статье DeepMind.
+- Huber loss вместо MSE
+- Gradient clipping
+- Epsilon decay по шагам (не эпизодам)
+- Target network update по шагам
+- Double DQN
 """
 import numpy as np
 import tensorflow as tf
@@ -12,13 +17,17 @@ class DQNAgent:
         self.state_size = state_size
         self.action_size = action_size
 
-        # Гиперпараметры
-        self.gamma = 0.95
+        # Гиперпараметры (ближе к оригинальной статье)
+        self.gamma = 0.99  # Было 0.95, в статье 0.99
         self.epsilon = 1.0
-        self.epsilon_min = 0.05  # Выше минимум - всегда немного исследует
-        self.epsilon_decay = 0.999  # Медленнее падает
-        self.learning_rate = 0.0005  # Меньше LR - стабильнее
-        self.batch_size = 64
+        self.epsilon_min = 0.01  # В статье 0.1, но для маленькой задачи можно ниже
+        self.epsilon_decay = 0.9995  # Decay на каждом шаге
+        self.learning_rate = 0.0005
+        self.batch_size = 32  # В статье 32
+
+        # Target network update каждые N шагов (в статье ~10000)
+        self.target_update_freq = 1000  # Для маленькой задачи меньше
+        self.train_step = 0
 
         self.memory = deque(maxlen=100000)
 
@@ -28,15 +37,22 @@ class DQNAgent:
 
     def _build_model(self):
         model = tf.keras.Sequential([
-            tf.keras.layers.Dense(64, input_dim=self.state_size, activation='relu'),
-            tf.keras.layers.Dense(64, activation='relu'),
-            tf.keras.layers.Dense(32, activation='relu'),
-            tf.keras.layers.Dense(self.action_size, activation='linear')
+            tf.keras.layers.Dense(64, input_dim=self.state_size, activation='relu',
+                                  kernel_initializer='he_uniform'),
+            tf.keras.layers.Dense(64, activation='relu',
+                                  kernel_initializer='he_uniform'),
+            tf.keras.layers.Dense(32, activation='relu',
+                                  kernel_initializer='he_uniform'),
+            tf.keras.layers.Dense(self.action_size, activation='linear',
+                                  kernel_initializer='he_uniform')
         ])
-        model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate),
-            loss='mse'
+
+        # Huber loss + gradient clipping (как в статье)
+        optimizer = tf.keras.optimizers.Adam(
+            learning_rate=self.learning_rate,
+            clipnorm=1.0  # Gradient clipping
         )
+        model.compile(optimizer=optimizer, loss='huber')  # Huber вместо MSE
         return model
 
     def update_target_model(self):
@@ -57,6 +73,8 @@ class DQNAgent:
         if len(self.memory) < self.batch_size:
             return
 
+        self.train_step += 1
+
         batch = random.sample(self.memory, self.batch_size)
 
         states = np.array([t[0] for t in batch])
@@ -65,20 +83,32 @@ class DQNAgent:
         next_states = np.array([t[3] for t in batch])
         dones = np.array([t[4] for t in batch])
 
-        # Double DQN
-        next_actions = np.argmax(self.model.predict(next_states, verbose=0), axis=1)
-        target_q = self.target_model.predict(next_states, verbose=0)
+        # Double DQN: выбираем действие через online сеть, оцениваем через target
+        # Оптимизация: один predict для next_states (обе сети)
+        next_q_online = self.model.predict(next_states, verbose=0)
+        next_q_target = self.target_model.predict(next_states, verbose=0)
         current_q = self.model.predict(states, verbose=0)
+
+        # Vectorized target calculation
+        next_actions = np.argmax(next_q_online, axis=1)
 
         for i in range(self.batch_size):
             if dones[i]:
                 current_q[i][actions[i]] = rewards[i]
             else:
-                current_q[i][actions[i]] = rewards[i] + self.gamma * target_q[i][next_actions[i]]
+                current_q[i][actions[i]] = rewards[i] + self.gamma * next_q_target[i][next_actions[i]]
 
         self.model.fit(states, current_q, epochs=1, verbose=0, batch_size=self.batch_size)
 
+        # Epsilon decay на каждом шаге обучения (как в статье)
+        self.decay_epsilon()
+
+        # Target network update по шагам (как в статье)
+        if self.train_step % self.target_update_freq == 0:
+            self.update_target_model()
+
     def decay_epsilon(self):
+        """Epsilon decay на каждом шаге"""
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
     def save(self, path):

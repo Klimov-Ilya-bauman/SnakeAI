@@ -1,6 +1,8 @@
 """
-Среда змейки v4 - по мотивам статьи.
-Относительные координаты + умные награды.
+Среда змейки v5 - оптимизации и исправления.
+- Исправлена нормализация координат еды
+- Оптимизация через set для O(1) проверок
+- Относительные координаты + умные награды
 """
 import numpy as np
 import math
@@ -22,6 +24,7 @@ class SnakeEnv:
     def reset(self):
         cx, cy = self.grid_width // 2, self.grid_height // 2
         self.snake = [(cx, cy), (cx - 1, cy), (cx - 2, cy)]
+        self.snake_set = set(self.snake)  # O(1) проверки
         self.dir_idx = 1  # Смотрим вправо (индекс в DIRECTIONS)
         self.food = self._spawn_food()
         self.score = 0
@@ -32,7 +35,7 @@ class SnakeEnv:
 
     def _spawn_food(self):
         empty = [(x, y) for x in range(self.grid_width)
-                 for y in range(self.grid_height) if (x, y) not in self.snake]
+                 for y in range(self.grid_height) if (x, y) not in self.snake_set]
         return empty[np.random.randint(len(empty))] if empty else self.snake[-1]
 
     def _get_direction(self):
@@ -48,8 +51,8 @@ class SnakeEnv:
     def _get_state(self):
         """
         5 чисел:
-        - 3: расстояние до опасности (прямо, слева, справа) — нормализованное
-        - 2: относительные координаты еды (в системе координат змейки)
+        - 3: расстояние до опасности (прямо, слева, справа) — нормализованное [0, 1]
+        - 2: относительные координаты еды — нормализованные [-1, 1]
         """
         head = self.snake[0]
         direction = self._get_direction()
@@ -64,16 +67,17 @@ class SnakeEnv:
         dist_left = self._distance_to_danger(head, dir_left)
         dist_right = self._distance_to_danger(head, dir_right)
 
-        # Нормализуем (макс расстояние = диагональ)
+        # Нормализуем (макс расстояние = размер сетки)
         max_dist = max(self.grid_width, self.grid_height)
         dist_straight /= max_dist
         dist_left /= max_dist
         dist_right /= max_dist
 
-        # Относительные координаты еды
+        # Относительные координаты еды (исправленная нормализация)
         food_rel = self._get_relative_food_pos(head, direction)
-        food_x = food_rel[0] / self.grid_width
-        food_y = food_rel[1] / self.grid_height
+        # Координаты могут быть от -grid до +grid, нормализуем в [-1, 1]
+        food_x = np.clip(food_rel[0] / self.grid_width, -1.0, 1.0)
+        food_y = np.clip(food_rel[1] / self.grid_height, -1.0, 1.0)
 
         state = np.array([
             dist_straight, dist_left, dist_right,
@@ -86,6 +90,9 @@ class SnakeEnv:
         """Расстояние до стены или тела в направлении"""
         x, y = start
         dist = 0
+        # Тело без хвоста (хвост уйдёт на следующем шаге)
+        body_set = self.snake_set - {self.snake[-1]}
+
         while True:
             x += direction[0]
             y += direction[1]
@@ -95,11 +102,9 @@ class SnakeEnv:
             if x < 0 or x >= self.grid_width or y < 0 or y >= self.grid_height:
                 return dist
 
-            # Тело (кроме хвоста)
-            if (x, y) in self.snake[:-1]:
+            # Тело (O(1) проверка)
+            if (x, y) in body_set:
                 return dist
-
-        return dist
 
     def _get_relative_food_pos(self, head, direction):
         """
@@ -123,7 +128,7 @@ class SnakeEnv:
         x, y = point
         if x < 0 or x >= self.grid_width or y < 0 or y >= self.grid_height:
             return True
-        if point in self.snake:
+        if point in self.snake_set:
             return True
         return False
 
@@ -156,7 +161,9 @@ class SnakeEnv:
                 reward = -10.0
             return self._get_state(), reward, True
 
+        # Добавляем новую голову
         self.snake.insert(0, new_head)
+        self.snake_set.add(new_head)
 
         # Еда
         if new_head == self.food:
@@ -174,8 +181,9 @@ class SnakeEnv:
 
             return self._get_state(), reward, self.done
 
-        # Обычный шаг
-        self.snake.pop()
+        # Обычный шаг — убираем хвост
+        tail = self.snake.pop()
+        self.snake_set.remove(tail)
 
         # Таймаут (слишком долго без еды)
         if self.steps > 100 * len(self.snake):

@@ -2,17 +2,18 @@
 Обучение змейки генетическим алгоритмом.
 По мотивам статьи: https://habr.com/ru/articles/773288/
 
-+ Многопоточность
 + Один информативный TensorBoard график
 """
 import os
+
+# ВАЖНО: Отключаем GPU/Metal ДО импорта TensorFlow (для Mac M1/M2)
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 import time
 from datetime import datetime
 from genetic import GeneticAlgorithm
 from database import SnakeDatabase
-
-# Отключаем лишние логи TensorFlow
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 def train(epochs=500,
@@ -90,7 +91,6 @@ def train(epochs=500,
     print("Создание начальной популяции...")
     ga.create_initial_population()
     print(f"Создано {len(ga.population)} змеек")
-    print(f"Используется {ga.num_workers} процессов")
     print()
 
     best_ever = 0

@@ -7,13 +7,16 @@
 - Скрещивание (crossover)
 - Мутация
 
-+ Многопоточность для ускорения (ThreadPool для TensorFlow)
++ Последовательная обработка (стабильно на всех платформах)
 """
-import numpy as np
-from concurrent.futures import ThreadPoolExecutor
 import os
 
+# ВАЖНО: Отключаем GPU/Metal ДО импорта TensorFlow
+# Нужно для стабильной работы на Mac M1/M2
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+import numpy as np
 
 from env import SnakeEnv
 from neural_network import SnakeNetwork
@@ -26,14 +29,12 @@ class GeneticAlgorithm:
                  mutation_rate=0.05,
                  crossover_ratio=0.7,
                  layer_sizes=(32, 12, 8, 4),
-                 grid_size=10,
-                 num_workers=None):
+                 grid_size=10):
         """
         population_size: размер популяции
         top_k: сколько лучших отбираем
         mutation_rate: вероятность мутации гена
         crossover_ratio: вероятность взять ген от первого родителя (70/30)
-        num_workers: количество потоков (по умолчанию = 8)
         """
         self.population_size = population_size
         self.top_k = top_k
@@ -41,7 +42,6 @@ class GeneticAlgorithm:
         self.crossover_ratio = crossover_ratio
         self.layer_sizes = layer_sizes
         self.grid_size = grid_size
-        self.num_workers = num_workers or 8  # ThreadPool лучше с умеренным числом
 
         self.population = []
         self.generation = 0
@@ -81,21 +81,14 @@ class GeneticAlgorithm:
         return env.get_score(), env.steps, env.is_win()
 
     def evaluate_population(self):
-        """Оценка всей популяции с многопоточностью"""
-        def evaluate_one(idx):
-            weights = self.population[idx]['weights']
-            return idx, self._evaluate_snake(weights)
-
-        # Параллельная обработка с ThreadPool
-        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
-            results = list(executor.map(evaluate_one, range(len(self.population))))
-
-        # Обновляем результаты
+        """Оценка всей популяции"""
         wins_this_gen = 0
-        for idx, (score, steps, win) in results:
-            self.population[idx]['score'] = score
-            self.population[idx]['steps'] = steps
-            self.population[idx]['win'] = win
+
+        for i, p in enumerate(self.population):
+            score, steps, win = self._evaluate_snake(p['weights'])
+            self.population[i]['score'] = score
+            self.population[i]['steps'] = steps
+            self.population[i]['win'] = win
             if win:
                 wins_this_gen += 1
 

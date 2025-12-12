@@ -1,11 +1,11 @@
 # Настройки игры
-WIDTH = 360
-HEIGHT = 360
+WIDTH = 450   # 15 клеток * 30
+HEIGHT = 450
 
 # Сетка
-GRID_SIZE = 36  # Уменьшил для большего поля
-GRID_WIDTH = WIDTH // GRID_SIZE  # 10 клеток
-GRID_HEIGHT = HEIGHT // GRID_SIZE  # 10 клеток
+GRID_SIZE = 30
+GRID_WIDTH = WIDTH // GRID_SIZE   # 15 клеток
+GRID_HEIGHT = HEIGHT // GRID_SIZE  # 15 клеток
 
 # Цвета
 BLUE = (0, 139, 139)

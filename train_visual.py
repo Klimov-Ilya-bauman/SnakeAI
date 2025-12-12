@@ -1,6 +1,7 @@
 """
-Обучение с визуализацией.
+Обучение с визуализацией v5.
 Можно смотреть как змейка учится в реальном времени.
+Epsilon decay и target update теперь внутри agent.replay().
 """
 import os
 import sys
@@ -173,7 +174,7 @@ class VisualTrainer:
                     
                     action = self.agent.act(state)
                     next_state, reward, done = self.env.step(action)
-                    agent.remember(state, action, reward, next_state, done)
+                    self.agent.remember(state, action, reward, next_state, done)
                     state = next_state
                     self.agent.replay()
                 
@@ -208,17 +209,15 @@ class VisualTrainer:
                 self.agent.save(f"models/best_{score}.keras")
             
             win_rate = sum(recent_wins) / len(recent_wins) if recent_wins else 0
-            
+
             # TensorBoard
             with summary_writer.as_default():
                 tf.summary.scalar('score', score, step=episode)
                 tf.summary.scalar('win_rate', win_rate, step=episode)
                 tf.summary.scalar('epsilon', self.agent.epsilon, step=episode)
-            
-            # Обновление целевой сети
-            if episode % 10 == 0:
-                self.agent.update_target_model()
-            
+
+            # epsilon decay и target update теперь внутри replay()
+
             # Прогресс в консоль
             if episode % 100 == 0:
                 print(f"Эпизод {episode} | Win rate: {win_rate*100:.1f}% | "
@@ -241,7 +240,5 @@ class VisualTrainer:
 
 
 if __name__ == "__main__":
-    # Глобальный агент для доступа из класса
     trainer = VisualTrainer()
-    agent = trainer.agent
     trainer.train(episodes=10000)

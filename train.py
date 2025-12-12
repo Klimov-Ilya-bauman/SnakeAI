@@ -1,5 +1,6 @@
 """
-Обучение змейки v4.
+Обучение змейки v5.
+Epsilon decay и target update теперь внутри agent.replay().
 """
 import os
 import numpy as np
@@ -41,10 +42,7 @@ def train(episodes=5000):
 
         score = env.get_score()
         scores.append(score)
-        agent.decay_epsilon()
-
-        if ep % 10 == 0:
-            agent.update_target_model()
+        # epsilon decay и target update теперь внутри replay()
 
         avg = np.mean(scores[-100:]) if len(scores) >= 100 else np.mean(scores)
 

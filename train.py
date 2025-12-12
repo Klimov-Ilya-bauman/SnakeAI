@@ -1,6 +1,9 @@
 """
 Обучение змейки генетическим алгоритмом.
 По мотивам статьи: https://habr.com/ru/articles/773288/
+
++ Многопоточность
++ Один информативный TensorBoard график
 """
 import os
 import time
@@ -8,14 +11,18 @@ from datetime import datetime
 from genetic import GeneticAlgorithm
 from database import SnakeDatabase
 
+# Отключаем лишние логи TensorFlow
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-def train(epochs=100,
-          population_size=1000,
-          top_k=15,
+
+def train(epochs=500,
+          population_size=2000,
+          top_k=20,
           mutation_rate=0.05,
-          grid_size=15,
+          grid_size=10,
           layer_sizes=(32, 12, 8, 4),
           save_every=10,
+          use_tensorboard=True,
           name=None):
     """
     Основной цикл обучения
@@ -24,12 +31,21 @@ def train(epochs=100,
     population_size: размер начальной популяции
     top_k: сколько лучших отбираем
     mutation_rate: вероятность мутации
-    grid_size: размер поля
+    grid_size: размер поля (10 = 10x10)
     layer_sizes: архитектура сети
     save_every: сохранять лучших каждые N поколений
+    use_tensorboard: включить TensorBoard логирование
     """
     # База данных
     db = SnakeDatabase()
+
+    # TensorBoard
+    writer = None
+    if use_tensorboard:
+        import tensorflow as tf
+        log_dir = f"logs/genetic_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        writer = tf.summary.create_file_writer(log_dir)
+        print(f"TensorBoard: tensorboard --logdir={log_dir}")
 
     # Имя симуляции
     if name is None:
@@ -45,15 +61,18 @@ def train(epochs=100,
         layer_sizes=layer_sizes
     )
 
+    # Для победы на 10x10 нужно 64 очка (8x8 внутренних клеток)
+    win_score = (grid_size - 2) ** 2
+
     print("=" * 60)
     print("Генетический алгоритм - Snake AI")
     print("=" * 60)
     print(f"Симуляция: {name} (id={sim_id})")
-    print(f"Поле: {grid_size}x{grid_size}")
+    print(f"Поле: {grid_size}x{grid_size} (победа = {win_score} очков)")
     print(f"Популяция: {population_size}")
     print(f"Отбор: TOP-{top_k}")
     print(f"Мутация: {mutation_rate * 100}%")
-    print(f"Сеть: {' → '.join(map(str, layer_sizes))}")
+    print(f"Сеть: {' -> '.join(map(str, layer_sizes))}")
     print(f"Эпох: {epochs}")
     print("=" * 60)
     print()
@@ -71,6 +90,7 @@ def train(epochs=100,
     print("Создание начальной популяции...")
     ga.create_initial_population()
     print(f"Создано {len(ga.population)} змеек")
+    print(f"Используется {ga.num_workers} процессов")
     print()
 
     best_ever = 0
@@ -93,10 +113,23 @@ def train(epochs=100,
         if stats['generation'] % save_every == 0:
             db.save_best_snakes(sim_id, stats['generation'], top_snakes[:5])
 
+        # TensorBoard - один график со всеми метриками
+        if writer:
+            import tensorflow as tf
+            with writer.as_default():
+                tf.summary.scalar('score/best', stats['best_score'], step=stats['generation'])
+                tf.summary.scalar('score/avg_top', stats['avg_score'], step=stats['generation'])
+                tf.summary.scalar('steps/best', stats['best_steps'], step=stats['generation'])
+                tf.summary.scalar('wins/this_gen', stats['wins_this_gen'], step=stats['generation'])
+                tf.summary.scalar('wins/total', stats['total_wins'], step=stats['generation'])
+                tf.summary.scalar('population', stats['population_size'], step=stats['generation'])
+            writer.flush()
+
         # Новый рекорд
         if stats['best_score'] > best_ever:
             best_ever = stats['best_score']
-            print(f"🏆 NEW BEST: {best_ever} (gen {stats['generation']})")
+            pct = (best_ever / win_score) * 100
+            print(f"*** NEW BEST: {best_ever}/{win_score} ({pct:.1f}%) - gen {stats['generation']}")
 
     # Эволюция
     for epoch in range(epochs):
@@ -104,20 +137,30 @@ def train(epochs=100,
 
         if epoch % 5 == 0:
             elapsed = time.time() - start_time
+            pct = (stats['best_score'] / win_score) * 100
+            wins_info = f"Wins: {stats['total_wins']}" if stats['total_wins'] > 0 else ""
             print(f"Gen {stats['generation']:4d} | "
-                  f"Best: {stats['best_score']:3d} | "
+                  f"Best: {stats['best_score']:2d}/{win_score} ({pct:5.1f}%) | "
                   f"Avg: {stats['avg_score']:5.1f} | "
                   f"Pop: {stats['population_size']:4d} | "
-                  f"Time: {elapsed:.0f}s")
+                  f"Time: {elapsed:6.0f}s {wins_info}")
+
+        # Ранняя остановка если достигли победы
+        if stats['total_wins'] >= 10:
+            print(f"\n*** GOAL REACHED: {stats['total_wins']} wins! ***")
+            break
 
     # Финал
+    if writer:
+        writer.close()
     db.finish_simulation(sim_id)
     db.close()
 
     elapsed = time.time() - start_time
     print()
     print("=" * 60)
-    print(f"Готово! Лучший результат: {best_ever}")
+    print(f"Готово! Лучший результат: {best_ever}/{win_score}")
+    print(f"Всего побед: {ga.wins}")
     print(f"Время: {elapsed / 60:.1f} минут")
     print(f"Данные сохранены в snake_evolution.db")
     print("=" * 60)
@@ -126,7 +169,7 @@ def train(epochs=100,
     best_net = ga.get_best_network()
     if best_net:
         os.makedirs("models", exist_ok=True)
-        weights_path = f"models/best_gen_{name}.npy"
+        weights_path = f"models/best_{name}.npy"
         import numpy as np
         np.save(weights_path, ga.best_weights)
         print(f"Веса сохранены: {weights_path}")
@@ -135,10 +178,12 @@ def train(epochs=100,
 
 
 if __name__ == "__main__":
+    # Параметры для победы на 10x10
+    # Большая популяция + больше поколений = больше шансов найти хорошее решение
     train(
-        epochs=100,
-        population_size=1000,
-        top_k=15,
-        mutation_rate=0.05,
-        grid_size=15
+        epochs=500,           # Больше поколений
+        population_size=2000,  # Большая популяция
+        top_k=20,             # Больше лучших для разнообразия
+        mutation_rate=0.05,   # 5% мутаций
+        grid_size=10          # Поле 10x10
     )

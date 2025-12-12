@@ -158,7 +158,7 @@ def find_weights():
         pass
 
     # Из файлов
-    patterns = ["models/best_gen_*.npy", "models/*.npy"]
+    patterns = ["models/best_*.npy", "models/best_gen_*.npy", "models/*.npy"]
     for pattern in patterns:
         files = glob.glob(pattern)
         if files:

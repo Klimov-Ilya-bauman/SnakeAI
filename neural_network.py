@@ -47,9 +47,10 @@ class SnakeNetwork:
         return model
 
     def predict(self, state):
-        """Получить действие"""
+        """Получить действие (быстрый режим без tf.function)"""
         state = np.reshape(state, (1, -1))
-        output = self.model.predict(state, verbose=0)[0]
+        # Прямой вызов модели быстрее чем predict() для одиночных примеров
+        output = self.model(state, training=False).numpy()[0]
         return np.argmax(output)
 
     def predict_batch(self, states):

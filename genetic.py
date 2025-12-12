@@ -6,27 +6,34 @@
 - Селекция (отбор лучших)
 - Скрещивание (crossover)
 - Мутация
+
++ Многопоточность для ускорения (ThreadPool для TensorFlow)
 """
 import numpy as np
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-import multiprocessing
+from concurrent.futures import ThreadPoolExecutor
+import os
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 from env import SnakeEnv
 from neural_network import SnakeNetwork
 
 
 class GeneticAlgorithm:
     def __init__(self,
-                 population_size=1000,
-                 top_k=15,
+                 population_size=2000,
+                 top_k=20,
                  mutation_rate=0.05,
                  crossover_ratio=0.7,
                  layer_sizes=(32, 12, 8, 4),
-                 grid_size=15):
+                 grid_size=10,
+                 num_workers=None):
         """
         population_size: размер популяции
         top_k: сколько лучших отбираем
         mutation_rate: вероятность мутации гена
         crossover_ratio: вероятность взять ген от первого родителя (70/30)
+        num_workers: количество потоков (по умолчанию = 8)
         """
         self.population_size = population_size
         self.top_k = top_k
@@ -34,57 +41,65 @@ class GeneticAlgorithm:
         self.crossover_ratio = crossover_ratio
         self.layer_sizes = layer_sizes
         self.grid_size = grid_size
+        self.num_workers = num_workers or 8  # ThreadPool лучше с умеренным числом
 
         self.population = []
         self.generation = 0
         self.best_score = 0
         self.best_weights = None
+        self.wins = 0  # Счётчик побед
+
+        # Создаём шаблонную сеть для получения структуры весов
+        self._template_net = SnakeNetwork(layer_sizes)
+        self._num_weights = self._template_net.get_total_weights()
 
     def create_initial_population(self):
         """Создаём начальную популяцию со случайными весами"""
         self.population = []
         for _ in range(self.population_size):
-            net = SnakeNetwork(self.layer_sizes)
+            # Случайные веса в диапазоне [-1, 1]
+            weights = np.random.uniform(-1, 1, self._num_weights).astype(np.float32)
             self.population.append({
-                'weights': net.get_weights_flat(),
+                'weights': weights,
                 'score': 0,
-                'steps': 0
+                'steps': 0,
+                'win': False
             })
         self.generation = 0
 
-    def evaluate_snake(self, weights):
+    def _evaluate_snake(self, weights):
         """Оценка одной змейки"""
         env = SnakeEnv(self.grid_size, self.grid_size)
         net = SnakeNetwork(self.layer_sizes)
         net.set_weights_flat(weights)
 
         state = env.reset()
-        total_steps = 0
-
         while not env.done:
             action = net.predict(state)
-            state, reward, done = env.step(action)
-            total_steps += 1
+            state, _, _ = env.step(action)
 
-        return env.get_score(), total_steps
+        return env.get_score(), env.steps, env.is_win()
 
-    def evaluate_population(self, parallel=True, max_workers=None):
-        """Оценка всей популяции"""
-        if parallel:
-            workers = max_workers or multiprocessing.cpu_count()
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                results = list(executor.map(
-                    lambda p: self.evaluate_snake(p['weights']),
-                    self.population
-                ))
-            for i, (score, steps) in enumerate(results):
-                self.population[i]['score'] = score
-                self.population[i]['steps'] = steps
-        else:
-            for p in self.population:
-                score, steps = self.evaluate_snake(p['weights'])
-                p['score'] = score
-                p['steps'] = steps
+    def evaluate_population(self):
+        """Оценка всей популяции с многопоточностью"""
+        def evaluate_one(idx):
+            weights = self.population[idx]['weights']
+            return idx, self._evaluate_snake(weights)
+
+        # Параллельная обработка с ThreadPool
+        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+            results = list(executor.map(evaluate_one, range(len(self.population))))
+
+        # Обновляем результаты
+        wins_this_gen = 0
+        for idx, (score, steps, win) in results:
+            self.population[idx]['score'] = score
+            self.population[idx]['steps'] = steps
+            self.population[idx]['win'] = win
+            if win:
+                wins_this_gen += 1
+
+        return wins_this_gen
 
     def select_top(self):
         """Отбор лучших"""
@@ -99,27 +114,28 @@ class GeneticAlgorithm:
 
         # Для каждого гена выбираем от какого родителя
         mask = np.random.random(len(w1)) < self.crossover_ratio
-        child = np.where(mask, w1, w2)
+        child = np.where(mask, w1, w2).astype(np.float32)
 
         return child
 
     def mutate(self, weights):
         """Мутация"""
         mask = np.random.random(len(weights)) < self.mutation_rate
-        mutations = np.random.uniform(-1, 1, len(weights))
-        weights = np.where(mask, mutations, weights)
+        mutations = np.random.uniform(-1, 1, len(weights)).astype(np.float32)
+        weights = np.where(mask, mutations, weights).astype(np.float32)
         return weights
 
     def create_new_generation(self, top_snakes):
         """Создание нового поколения"""
         new_population = []
 
-        # 1. Копии лучших (элита)
+        # 1. Копии лучших (элита) - без мутаций
         for snake in top_snakes:
             new_population.append({
                 'weights': snake['weights'].copy(),
                 'score': 0,
-                'steps': 0
+                'steps': 0,
+                'win': False
             })
 
         # 2. Скрещивание каждый с каждым
@@ -131,7 +147,8 @@ class GeneticAlgorithm:
                     new_population.append({
                         'weights': child,
                         'score': 0,
-                        'steps': 0
+                        'steps': 0,
+                        'win': False
                     })
 
                     # Потомок с мутацией
@@ -139,7 +156,8 @@ class GeneticAlgorithm:
                     new_population.append({
                         'weights': child_mutated,
                         'score': 0,
-                        'steps': 0
+                        'steps': 0,
+                        'win': False
                     })
 
         self.population = new_population
@@ -148,7 +166,8 @@ class GeneticAlgorithm:
     def evolve(self, callback=None):
         """Один шаг эволюции"""
         # Оценка
-        self.evaluate_population()
+        wins_this_gen = self.evaluate_population()
+        self.wins += wins_this_gen
 
         # Отбор лучших
         top_snakes = self.select_top()
@@ -164,7 +183,9 @@ class GeneticAlgorithm:
             'best_score': top_snakes[0]['score'],
             'best_steps': top_snakes[0]['steps'],
             'avg_score': np.mean([s['score'] for s in top_snakes]),
-            'population_size': len(self.population)
+            'population_size': len(self.population),
+            'wins_this_gen': wins_this_gen,
+            'total_wins': self.wins
         }
 
         if callback:

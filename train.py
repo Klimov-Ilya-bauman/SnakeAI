@@ -23,7 +23,7 @@ def train(episodes=5000):
     print()
 
     env = SnakeEnv()
-    agent = DQNAgent(state_size=11, action_size=3)
+    agent = DQNAgent(state_size=7, action_size=3)
 
     # Вывод гиперпараметров
     print(f"Гиперпараметры:")

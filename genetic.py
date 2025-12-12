@@ -68,18 +68,67 @@ class GeneticAlgorithm:
         self._template_net = SnakeNetwork(layer_sizes)
         self._num_weights = self._template_net.get_total_weights()
 
-    def create_initial_population(self):
-        """Создаём начальную популяцию со случайными весами"""
+    def create_initial_population(self, seed_weights=None):
+        """
+        Создаём начальную популяцию.
+
+        seed_weights: если указаны, создаём популяцию на основе этих весов
+                      (для продолжения обучения)
+        """
         self.population = []
-        for _ in range(self.population_size):
-            # Случайные веса в диапазоне [-1, 1]
-            weights = np.random.uniform(-1, 1, self._num_weights).astype(np.float32)
+
+        if seed_weights is not None:
+            # Продолжение обучения: создаём вариации лучших весов
+            print(f"Загружены веса, создаём вариации...")
+
+            # 1. Оригинал
             self.population.append({
-                'weights': weights,
+                'weights': seed_weights.copy(),
                 'score': 0,
                 'steps': 0,
                 'win': False
             })
+
+            # 2. Вариации с разной силой мутации
+            mutations_rates = [0.01, 0.02, 0.05, 0.1, 0.15, 0.2]
+            per_rate = (self.population_size - 1) // len(mutations_rates)
+
+            for rate in mutations_rates:
+                for _ in range(per_rate):
+                    mutated = seed_weights.copy()
+                    mask = np.random.random(len(mutated)) < rate
+                    mutations = np.random.uniform(-1, 1, len(mutated)).astype(np.float32)
+                    mutated = np.where(mask, mutations, mutated).astype(np.float32)
+                    self.population.append({
+                        'weights': mutated,
+                        'score': 0,
+                        'steps': 0,
+                        'win': False
+                    })
+
+            # 3. Добавляем случайных для разнообразия (10%)
+            random_count = self.population_size // 10
+            for _ in range(random_count):
+                weights = np.random.uniform(-1, 1, self._num_weights).astype(np.float32)
+                self.population.append({
+                    'weights': weights,
+                    'score': 0,
+                    'steps': 0,
+                    'win': False
+                })
+
+            self.best_weights = seed_weights.copy()
+        else:
+            # Новое обучение: случайные веса
+            for _ in range(self.population_size):
+                weights = np.random.uniform(-1, 1, self._num_weights).astype(np.float32)
+                self.population.append({
+                    'weights': weights,
+                    'score': 0,
+                    'steps': 0,
+                    'win': False
+                })
+
         self.generation = 0
 
     def evaluate_population(self):

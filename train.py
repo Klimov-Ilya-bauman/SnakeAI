@@ -1,6 +1,5 @@
 """
-Обучение змейки v5.
-Epsilon decay и target update теперь внутри agent.replay().
+Обучение змейки v6.
 """
 import os
 import numpy as np
@@ -21,7 +20,7 @@ def train(episodes=5000):
     print()
 
     env = SnakeEnv()
-    agent = DQNAgent(state_size=5, action_size=3)
+    agent = DQNAgent(state_size=11, action_size=3)
 
     scores = []
     best = 0
@@ -42,7 +41,10 @@ def train(episodes=5000):
 
         score = env.get_score()
         scores.append(score)
-        # epsilon decay и target update теперь внутри replay()
+        agent.decay_epsilon()
+
+        if ep % 10 == 0:
+            agent.update_target_model()
 
         avg = np.mean(scores[-100:]) if len(scores) >= 100 else np.mean(scores)
 

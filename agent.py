@@ -1,10 +1,8 @@
 """
-DQN Агент v5 - улучшения по статье DeepMind.
-- Huber loss вместо MSE
-- Gradient clipping
-- Epsilon decay по шагам (не эпизодам)
-- Target network update по шагам
-- Double DQN
+DQN Агент v6 - упрощённая версия.
+- 11 входов (бинарные признаки)
+- Меньшая сеть
+- Простые награды
 """
 import numpy as np
 import tensorflow as tf
@@ -13,20 +11,19 @@ import random
 
 
 class DQNAgent:
-    def __init__(self, state_size=5, action_size=3):
+    def __init__(self, state_size=11, action_size=3):
         self.state_size = state_size
         self.action_size = action_size
 
-        # Гиперпараметры (ближе к оригинальной статье)
-        self.gamma = 0.99  # Было 0.95, в статье 0.99
+        # Гиперпараметры
+        self.gamma = 0.95
         self.epsilon = 1.0
-        self.epsilon_min = 0.01  # В статье 0.1, но для маленькой задачи можно ниже
-        self.epsilon_decay = 0.9997  # Баланс между exploration и exploitation
-        self.learning_rate = 0.0005
-        self.batch_size = 32  # В статье 32
+        self.epsilon_min = 0.01
+        self.epsilon_decay = 0.995  # Быстрее decay для простой задачи
+        self.learning_rate = 0.001
+        self.batch_size = 64
 
-        # Target network update каждые N шагов (в статье ~10000)
-        self.target_update_freq = 1000  # Для маленькой задачи меньше
+        self.target_update_freq = 100
         self.train_step = 0
 
         self.memory = deque(maxlen=100000)
@@ -37,22 +34,14 @@ class DQNAgent:
 
     def _build_model(self):
         model = tf.keras.Sequential([
-            tf.keras.layers.Dense(64, input_dim=self.state_size, activation='relu',
-                                  kernel_initializer='he_uniform'),
-            tf.keras.layers.Dense(64, activation='relu',
-                                  kernel_initializer='he_uniform'),
-            tf.keras.layers.Dense(32, activation='relu',
-                                  kernel_initializer='he_uniform'),
-            tf.keras.layers.Dense(self.action_size, activation='linear',
-                                  kernel_initializer='he_uniform')
+            tf.keras.layers.Dense(256, input_dim=self.state_size, activation='relu'),
+            tf.keras.layers.Dense(256, activation='relu'),
+            tf.keras.layers.Dense(self.action_size, activation='linear')
         ])
-
-        # Huber loss + gradient clipping (как в статье)
-        optimizer = tf.keras.optimizers.Adam(
-            learning_rate=self.learning_rate,
-            clipnorm=1.0  # Gradient clipping
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate),
+            loss='mse'
         )
-        model.compile(optimizer=optimizer, loss='huber')  # Huber вместо MSE
         return model
 
     def update_target_model(self):
@@ -99,13 +88,6 @@ class DQNAgent:
                 current_q[i][actions[i]] = rewards[i] + self.gamma * next_q_target[i][next_actions[i]]
 
         self.model.fit(states, current_q, epochs=1, verbose=0, batch_size=self.batch_size)
-
-        # Epsilon decay на каждом шаге обучения (как в статье)
-        self.decay_epsilon()
-
-        # Target network update по шагам (как в статье)
-        if self.train_step % self.target_update_freq == 0:
-            self.update_target_model()
 
     def decay_epsilon(self):
         """Epsilon decay на каждом шаге"""

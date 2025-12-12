@@ -5,26 +5,25 @@ import os
 import sys
 import glob
 import pygame
-import numpy as np
 from env import SnakeEnv
 from agent import DQNAgent
-from config import WIDTH, HEIGHT, GRID_SIZE, BACKGROUND, SNAKE, FOOD, GRID, BLACK, WHITE, RED, GREEN
+from config import WIDTH, HEIGHT, GRID_SIZE, BACKGROUND, SNAKE, FOOD, GRID, BLACK, WHITE, GREEN
 
 
 class SnakePlayer:
     def __init__(self, model_path=None):
         pygame.init()
         self.screen = pygame.display.set_mode((WIDTH + 200, HEIGHT))
-        pygame.display.set_caption('🐍 Snake AI')
+        pygame.display.set_caption('Snake AI - DQN')
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont('arial', 18)
 
         self.env = SnakeEnv()
-        self.agent = DQNAgent(state_size=5, action_size=3)
+        self.agent = DQNAgent(state_size=11, action_size=3)
 
         if model_path and os.path.exists(model_path):
             self.agent.load(model_path)
-            print(f"✅ Loaded: {model_path}")
+            print(f"Loaded: {model_path}")
 
         self.fps = 10
         self.games = 0
@@ -44,7 +43,7 @@ class SnakePlayer:
         # Snake
         for i, (x, y) in enumerate(self.env.snake):
             rect = pygame.Rect(x * GRID_SIZE, y * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1)
-            color = (0, 255, 0) if i == 0 else SNAKE
+            color = GREEN if i == 0 else SNAKE
             pygame.draw.rect(self.screen, color, rect)
 
         # Food
@@ -103,7 +102,7 @@ class SnakePlayer:
                     self.total_score += score
                     self.best = max(self.best, score)
 
-                    status = "🏆 WIN!" if self.env.is_win() else f"Score: {score}"
+                    status = "WIN!" if self.env.is_win() else f"Score: {score}"
                     print(f"Game {self.games}: {status}")
 
                     pygame.time.wait(500)
@@ -115,7 +114,7 @@ class SnakePlayer:
         pygame.quit()
 
         if self.games > 0:
-            print(f"\n📊 Results: {self.games} games, Avg: {self.total_score / self.games:.1f}, Best: {self.best}")
+            print(f"\nResults: {self.games} games, Avg: {self.total_score / self.games:.1f}, Best: {self.best}")
 
 
 def find_model():
@@ -135,7 +134,7 @@ if __name__ == "__main__":
     model = sys.argv[1] if len(sys.argv) > 1 else find_model()
 
     if not model:
-        print("❌ No model found! Train first: python train.py")
+        print("No model found! Train first: python train.py")
         sys.exit(1)
 
     player = SnakePlayer(model)

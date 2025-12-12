@@ -21,7 +21,7 @@ class DQNAgent:
         self.gamma = 0.99  # Было 0.95, в статье 0.99
         self.epsilon = 1.0
         self.epsilon_min = 0.01  # В статье 0.1, но для маленькой задачи можно ниже
-        self.epsilon_decay = 0.9999  # Медленный decay для лучшего exploration
+        self.epsilon_decay = 0.9997  # Баланс между exploration и exploitation
         self.learning_rate = 0.0005
         self.batch_size = 32  # В статье 32
 

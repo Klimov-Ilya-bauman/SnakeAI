@@ -24,7 +24,7 @@ class VisualTrainer:
         self.big_font = pygame.font.SysFont('arial', 24)
 
         self.env = SnakeEnv()
-        self.agent = DQNAgent(state_size=11, action_size=3)
+        self.agent = DQNAgent(state_size=7, action_size=3)
 
         # Настройки визуализации
         self.fps = 30

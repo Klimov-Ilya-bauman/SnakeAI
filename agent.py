@@ -15,7 +15,7 @@ import random
 
 
 class DQNAgent:
-    def __init__(self, state_size, action_size):
+    def __init__(self, state_size=7, action_size=3):
         self.state_size = state_size
         self.action_size = action_size
 

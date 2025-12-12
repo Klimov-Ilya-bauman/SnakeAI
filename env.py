@@ -1,7 +1,6 @@
 """
-Среда змейки v6 - проверенный подход.
-- 11 бинарных признаков (как в большинстве туториалов)
-- Простые награды без shaping
+Среда змейки - исправленное состояние.
+Все направления ОТНОСИТЕЛЬНЫЕ (к голове змейки).
 """
 import numpy as np
 from config import GRID_WIDTH, GRID_HEIGHT, UP, DOWN, LEFT, RIGHT
@@ -42,7 +41,6 @@ class SnakeEnv:
         self.dir_idx = (self.dir_idx + 1) % 4
 
     def _is_danger(self, point):
-        """Проверка опасности в точке"""
         x, y = point
         if x < 0 or x >= self.grid_width or y < 0 or y >= self.grid_height:
             return True
@@ -52,45 +50,40 @@ class SnakeEnv:
 
     def _get_state(self):
         """
-        11 признаков:
-        - 3: опасность в 1 клетке (прямо, слева, справа)
-        - 4: текущее направление (one-hot)
-        - 4: направление к еде (вверх, вниз, влево, вправо)
+        7 признаков (все ОТНОСИТЕЛЬНЫЕ к направлению змейки):
+        - 3: опасность (прямо, слева, справа)
+        - 4: еда (впереди, слева, справа, сзади)
         """
         head = self.snake[0]
-        direction = self._get_direction()
 
-        # Направления для проверки опасности
-        dir_l = self.DIRECTIONS[(self.dir_idx - 1) % 4]
-        dir_r = self.DIRECTIONS[(self.dir_idx + 1) % 4]
-        dir_s = direction
+        # Относительные направления
+        dir_forward = self.DIRECTIONS[self.dir_idx]
+        dir_left = self.DIRECTIONS[(self.dir_idx - 1) % 4]
+        dir_right = self.DIRECTIONS[(self.dir_idx + 1) % 4]
+        dir_back = self.DIRECTIONS[(self.dir_idx + 2) % 4]
 
-        # Точки для проверки (1 клетка в каждом направлении)
-        point_s = (head[0] + dir_s[0], head[1] + dir_s[1])
-        point_l = (head[0] + dir_l[0], head[1] + dir_l[1])
-        point_r = (head[0] + dir_r[0], head[1] + dir_r[1])
+        # Опасность в 1 клетке
+        danger_forward = self._is_danger((head[0] + dir_forward[0], head[1] + dir_forward[1]))
+        danger_left = self._is_danger((head[0] + dir_left[0], head[1] + dir_left[1]))
+        danger_right = self._is_danger((head[0] + dir_right[0], head[1] + dir_right[1]))
 
-        # Опасность (бинарные)
-        danger_straight = self._is_danger(point_s)
-        danger_left = self._is_danger(point_l)
-        danger_right = self._is_danger(point_r)
+        # Вектор к еде
+        food_dx = self.food[0] - head[0]
+        food_dy = self.food[1] - head[1]
 
-        # Направление движения (one-hot)
-        dir_up = direction == UP
-        dir_down = direction == DOWN
-        dir_left = direction == LEFT
-        dir_right = direction == RIGHT
+        # Проверяем направление к еде ОТНОСИТЕЛЬНО змейки
+        # Скалярное произведение вектора к еде и направления
+        def dot(d):
+            return food_dx * d[0] + food_dy * d[1]
 
-        # Направление к еде
-        food_up = self.food[1] < head[1]
-        food_down = self.food[1] > head[1]
-        food_left = self.food[0] < head[0]
-        food_right = self.food[0] > head[0]
+        food_forward = dot(dir_forward) > 0  # Еда впереди
+        food_left = dot(dir_left) > 0        # Еда слева
+        food_right = dot(dir_right) > 0      # Еда справа
+        food_back = dot(dir_back) > 0        # Еда сзади
 
         state = np.array([
-            danger_straight, danger_left, danger_right,
-            dir_up, dir_down, dir_left, dir_right,
-            food_up, food_down, food_left, food_right
+            danger_forward, danger_left, danger_right,
+            food_forward, food_left, food_right, food_back
         ], dtype=np.float32)
 
         return state
@@ -99,23 +92,20 @@ class SnakeEnv:
         """action: 0=прямо, 1=влево, 2=вправо"""
         self.steps += 1
 
-        # Поворачиваем
         if action == 1:
             self._turn_left()
         elif action == 2:
             self._turn_right()
 
-        # Двигаемся
         direction = self._get_direction()
         head = self.snake[0]
         new_head = (head[0] + direction[0], head[1] + direction[1])
 
-        # Столкновение = смерть
+        # Смерть
         if self._is_danger(new_head):
             self.done = True
             return self._get_state(), -10.0, True
 
-        # Добавляем новую голову
         self.snake.insert(0, new_head)
         self.snake_set.add(new_head)
 
@@ -126,7 +116,7 @@ class SnakeEnv:
 
             if len(self.snake) >= self.grid_width * self.grid_height:
                 self.done = True
-                return self._get_state(), 100.0, True  # Победа
+                return self._get_state(), 100.0, True
 
             self.food = self._spawn_food()
             return self._get_state(), 10.0, False
@@ -140,7 +130,7 @@ class SnakeEnv:
             self.done = True
             return self._get_state(), -10.0, True
 
-        return self._get_state(), 0.0, False  # Нейтральный шаг
+        return self._get_state(), 0.0, False
 
     def get_score(self):
         return self.score

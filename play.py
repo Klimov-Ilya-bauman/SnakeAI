@@ -19,7 +19,7 @@ class SnakePlayer:
         self.font = pygame.font.SysFont('arial', 18)
 
         self.env = SnakeEnv()
-        self.agent = DQNAgent(state_size=11, action_size=3)
+        self.agent = DQNAgent(state_size=7, action_size=3)
 
         if model_path and os.path.exists(model_path):
             self.agent.load(model_path)

@@ -63,8 +63,8 @@ def train(epochs=500,
         layer_sizes=layer_sizes
     )
 
-    # Для победы на 10x10 нужно 64 очка (8x8 внутренних клеток)
-    win_score = (grid_size - 2) ** 2
+    # Для победы на 10x10 нужно 98 очков (100 клеток - 2 начальных)
+    win_score = grid_size * grid_size - 2  # съесть 98 яблок
 
     print("=" * 60)
     print("Генетический алгоритм - Snake AI")

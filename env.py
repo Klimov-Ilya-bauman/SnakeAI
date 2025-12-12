@@ -36,14 +36,10 @@ class SnakeEnv:
 
     def reset(self):
         """Сброс игры"""
-        # Матрица мира
+        # Матрица мира (без стен внутри - всё поле для змейки)
         self.grid = np.zeros((self.height, self.width), dtype=np.int8)
 
-        # Стены по периметру
-        self.grid[0, :] = 4
-        self.grid[-1, :] = 4
-        self.grid[:, 0] = 4
-        self.grid[:, -1] = 4
+        # Стен внутри нет - границы проверяются при движении
 
         # Змейка в центре (голова + хвост)
         cx, cy = self.width // 2, self.height // 2
@@ -64,10 +60,10 @@ class SnakeEnv:
         return self._get_state()
 
     def _spawn_food(self):
-        """Случайная позиция для еды"""
+        """Случайная позиция для еды (на всём поле 10x10)"""
         empty = []
-        for y in range(1, self.height - 1):
-            for x in range(1, self.width - 1):
+        for y in range(self.height):
+            for x in range(self.width):
                 if self.grid[y, x] == 0:
                     empty.append((x, y))
         if empty:
@@ -87,7 +83,7 @@ class SnakeEnv:
 
         state = []
 
-        # 8 лучей: расстояние до стены, яблока, хвоста
+        # 8 лучей: расстояние до границы, яблока, хвоста
         for dx, dy in self.DIRECTIONS:
             dist_wall = 0
             dist_food = 0
@@ -101,17 +97,14 @@ class SnakeEnv:
                 y += dy
                 distance += 1
 
-                # Вышли за границы
+                # Вышли за границы поля = стена
                 if x < 0 or x >= self.width or y < 0 or y >= self.height:
                     dist_wall = 1.0 / distance
                     break
 
                 cell = self.grid[y, x]
 
-                if cell == 4:  # стена
-                    dist_wall = 1.0 / distance
-                    break
-                elif cell == 2 and dist_food == 0:  # яблоко
+                if cell == 2 and dist_food == 0:  # яблоко
                     dist_food = 1.0 / distance
                 elif cell == 1 and dist_body == 0:  # тело
                     dist_body = 1.0 / distance
@@ -160,7 +153,7 @@ class SnakeEnv:
 
         cell = self.grid[new_y, new_x]
 
-        if cell == 4 or cell == 1:  # стена или тело
+        if cell == 1:  # тело (стен внутри нет, границы проверены выше)
             self.done = True
             return self._get_state(), -1, True
 
@@ -183,8 +176,8 @@ class SnakeEnv:
             self.steps_without_food = 0
             reward = 1
 
-            # Победа?
-            if len(self.snake) >= (self.width - 2) * (self.height - 2):
+            # Победа? (заполнили всё поле 10x10 = 100 клеток)
+            if len(self.snake) >= self.width * self.height:
                 self.done = True
                 return self._get_state(), 10, True
 
@@ -202,7 +195,8 @@ class SnakeEnv:
         return self.score
 
     def is_win(self):
-        return len(self.snake) >= (self.width - 2) * (self.height - 2)
+        """Победа = змейка заполнила всё поле (100 клеток для 10x10)"""
+        return len(self.snake) >= self.width * self.height
 
     @property
     def direction(self):

@@ -1,11 +1,12 @@
 # Настройки игры
-WIDTH = 450   # 15 клеток * 30
-HEIGHT = 450
+# Поле 10x10 (для победы нужно набрать 64 очка = заполнить всё поле)
+WIDTH = 300   # 10 клеток * 30
+HEIGHT = 300
 
 # Сетка
 GRID_SIZE = 30
-GRID_WIDTH = WIDTH // GRID_SIZE   # 15 клеток
-GRID_HEIGHT = HEIGHT // GRID_SIZE  # 15 клеток
+GRID_WIDTH = WIDTH // GRID_SIZE   # 10 клеток
+GRID_HEIGHT = HEIGHT // GRID_SIZE  # 10 клеток
 
 # Цвета
 BLUE = (0, 139, 139)

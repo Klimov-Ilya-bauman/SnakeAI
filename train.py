@@ -1,94 +1,144 @@
 """
-Обучение DQN агента - по статье Mnih et al. 2013/2015.
+Обучение змейки генетическим алгоритмом.
+По мотивам статьи: https://habr.com/ru/articles/773288/
 """
 import os
-import numpy as np
-import tensorflow as tf
+import time
 from datetime import datetime
-from env import SnakeEnv
-from agent import DQNAgent
+from genetic import GeneticAlgorithm
+from database import SnakeDatabase
 
 
-def train(episodes=5000):
-    os.makedirs("models", exist_ok=True)
-    os.makedirs("logs", exist_ok=True)
+def train(epochs=100,
+          population_size=1000,
+          top_k=15,
+          mutation_rate=0.05,
+          grid_size=15,
+          layer_sizes=(32, 12, 8, 4),
+          save_every=10,
+          name=None):
+    """
+    Основной цикл обучения
 
-    log_dir = f"logs/{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    writer = tf.summary.create_file_writer(log_dir)
+    epochs: количество поколений
+    population_size: размер начальной популяции
+    top_k: сколько лучших отбираем
+    mutation_rate: вероятность мутации
+    grid_size: размер поля
+    layer_sizes: архитектура сети
+    save_every: сохранять лучших каждые N поколений
+    """
+    # База данных
+    db = SnakeDatabase()
+
+    # Имя симуляции
+    if name is None:
+        name = f"sim_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    # Создаём запись в БД
+    sim_id = db.create_simulation(
+        name=name,
+        grid_size=grid_size,
+        population_size=population_size,
+        top_k=top_k,
+        mutation_rate=mutation_rate,
+        layer_sizes=layer_sizes
+    )
 
     print("=" * 60)
-    print("DQN Training - по статье Mnih et al. 2013/2015")
+    print("Генетический алгоритм - Snake AI")
     print("=" * 60)
-    print(f"📊 tensorboard --logdir=logs")
+    print(f"Симуляция: {name} (id={sim_id})")
+    print(f"Поле: {grid_size}x{grid_size}")
+    print(f"Популяция: {population_size}")
+    print(f"Отбор: TOP-{top_k}")
+    print(f"Мутация: {mutation_rate * 100}%")
+    print(f"Сеть: {' → '.join(map(str, layer_sizes))}")
+    print(f"Эпох: {epochs}")
+    print("=" * 60)
     print()
 
-    env = SnakeEnv()
-    agent = DQNAgent(state_size=7, action_size=3)
+    # Генетический алгоритм
+    ga = GeneticAlgorithm(
+        population_size=population_size,
+        top_k=top_k,
+        mutation_rate=mutation_rate,
+        layer_sizes=layer_sizes,
+        grid_size=grid_size
+    )
 
-    # Вывод гиперпараметров
-    print(f"Гиперпараметры:")
-    print(f"  γ (gamma):        {agent.gamma}")
-    print(f"  Learning rate:    {agent.learning_rate}")
-    print(f"  Batch size:       {agent.batch_size}")
-    print(f"  Memory size:      {agent.memory_size}")
-    print(f"  ε decay steps:    {agent.epsilon_decay_steps}")
-    print(f"  Target update:    каждые {agent.target_update_freq} шагов")
+    # Начальная популяция
+    print("Создание начальной популяции...")
+    ga.create_initial_population()
+    print(f"Создано {len(ga.population)} змеек")
     print()
 
-    scores = []
-    best = 0
-    best_avg = 0
+    best_ever = 0
+    start_time = time.time()
 
-    for ep in range(1, episodes + 1):
-        state = env.reset()
-        total_reward = 0
-        steps = 0
+    def on_generation(stats, top_snakes):
+        nonlocal best_ever
 
-        while not env.done:
-            action = agent.act(state)
-            next_state, reward, done = env.step(action)
-            agent.remember(state, action, reward, next_state, done)
-            state = next_state
-            total_reward += reward
-            steps += 1
+        # Сохраняем в БД
+        db.save_generation(
+            sim_id,
+            stats['generation'],
+            stats['best_score'],
+            stats['best_steps'],
+            stats['avg_score'],
+            stats['population_size']
+        )
 
-            # Обучение на каждом шаге (как в статье)
-            agent.replay()
+        # Сохраняем лучших периодически
+        if stats['generation'] % save_every == 0:
+            db.save_best_snakes(sim_id, stats['generation'], top_snakes[:5])
 
-            # Линейный epsilon decay на каждом шаге (как в статье)
-            agent.step_epsilon()
+        # Новый рекорд
+        if stats['best_score'] > best_ever:
+            best_ever = stats['best_score']
+            print(f"🏆 NEW BEST: {best_ever} (gen {stats['generation']})")
 
-        score = env.get_score()
-        scores.append(score)
+    # Эволюция
+    for epoch in range(epochs):
+        stats = ga.evolve(callback=on_generation)
 
-        avg = np.mean(scores[-100:]) if len(scores) >= 100 else np.mean(scores)
+        if epoch % 5 == 0:
+            elapsed = time.time() - start_time
+            print(f"Gen {stats['generation']:4d} | "
+                  f"Best: {stats['best_score']:3d} | "
+                  f"Avg: {stats['avg_score']:5.1f} | "
+                  f"Pop: {stats['population_size']:4d} | "
+                  f"Time: {elapsed:.0f}s")
 
-        if score > best:
-            best = score
-            agent.save(f"models/best_{score}.keras")
-            print(f"🏆 NEW BEST: {score} (ep {ep})")
+    # Финал
+    db.finish_simulation(sim_id)
+    db.close()
 
-        if avg > best_avg and len(scores) >= 100:
-            best_avg = avg
-            agent.save(f"models/best_avg_{avg:.1f}.keras")
+    elapsed = time.time() - start_time
+    print()
+    print("=" * 60)
+    print(f"Готово! Лучший результат: {best_ever}")
+    print(f"Время: {elapsed / 60:.1f} минут")
+    print(f"Данные сохранены в snake_evolution.db")
+    print("=" * 60)
 
-        with writer.as_default():
-            tf.summary.scalar('score', score, step=ep)
-            tf.summary.scalar('avg_100', avg, step=ep)
-            tf.summary.scalar('epsilon', agent.epsilon, step=ep)
-            tf.summary.scalar('reward', total_reward, step=ep)
-            tf.summary.scalar('steps', steps, step=ep)
+    # Сохраняем лучшие веса
+    best_net = ga.get_best_network()
+    if best_net:
+        os.makedirs("models", exist_ok=True)
+        weights_path = f"models/best_gen_{name}.npy"
+        import numpy as np
+        np.save(weights_path, ga.best_weights)
+        print(f"Веса сохранены: {weights_path}")
 
-        if ep % 50 == 0:
-            print(f"Ep {ep:5d} | Score: {score:2d} | Avg: {avg:5.2f} | "
-                  f"Best: {best} | ε: {agent.epsilon:.3f} | Steps: {agent.total_steps}")
-
-        if ep % 500 == 0:
-            agent.save(f"models/checkpoint_{ep}.keras")
-
-    agent.save("models/final.keras")
-    print(f"\n✅ Готово! Best: {best}, Best Avg: {best_avg:.1f}")
+    return ga
 
 
 if __name__ == "__main__":
-    train(episodes=5000)
+    train(
+        epochs=100,
+        population_size=1000,
+        top_k=15,
+        mutation_rate=0.05,
+        grid_size=15
+    )

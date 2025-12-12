@@ -1,143 +1,214 @@
 """
-Среда змейки - исправленное состояние.
-Все направления ОТНОСИТЕЛЬНЫЕ (к голове змейки).
+Среда змейки с 32 сенсорами (8 лучей).
+По мотивам статьи: https://habr.com/ru/articles/773288/
+
+Матрица мира:
+  0 = пусто
+  1 = тело змейки
+  2 = еда
+  4 = стена
+  7 = голова
 """
 import numpy as np
-from config import GRID_WIDTH, GRID_HEIGHT, UP, DOWN, LEFT, RIGHT
+from config import GRID_WIDTH, GRID_HEIGHT
 
 
 class SnakeEnv:
-    ACTIONS = [0, 1, 2]  # 0=прямо, 1=влево, 2=вправо
-    DIRECTIONS = [UP, RIGHT, DOWN, LEFT]  # По часовой стрелке
+    # 8 направлений: вверх, вниз, влево, вправо + 4 диагонали
+    DIRECTIONS = [
+        (0, -1),   # вверх
+        (0, 1),    # вниз
+        (-1, 0),   # влево
+        (1, 0),    # вправо
+        (-1, -1),  # влево-вверх
+        (1, -1),   # вправо-вверх
+        (-1, 1),   # влево-вниз
+        (1, 1),    # вправо-вниз
+    ]
 
-    def __init__(self):
-        self.grid_width = GRID_WIDTH
-        self.grid_height = GRID_HEIGHT
+    # 4 действия: вверх, вниз, влево, вправо
+    ACTIONS = [(0, -1), (0, 1), (-1, 0), (1, 0)]
+
+    def __init__(self, width=None, height=None):
+        self.width = width or GRID_WIDTH
+        self.height = height or GRID_HEIGHT
         self.reset()
 
     def reset(self):
-        cx, cy = self.grid_width // 2, self.grid_height // 2
-        self.snake = [(cx, cy), (cx - 1, cy), (cx - 2, cy)]
-        self.snake_set = set(self.snake)
-        self.dir_idx = 1  # Вправо
+        """Сброс игры"""
+        # Матрица мира
+        self.grid = np.zeros((self.height, self.width), dtype=np.int8)
+
+        # Стены по периметру
+        self.grid[0, :] = 4
+        self.grid[-1, :] = 4
+        self.grid[:, 0] = 4
+        self.grid[:, -1] = 4
+
+        # Змейка в центре (голова + хвост)
+        cx, cy = self.width // 2, self.height // 2
+        self.snake = [(cx, cy), (cx - 1, cy)]  # голова, хвост
+        self.grid[cy, cx] = 7      # голова
+        self.grid[cy, cx - 1] = 1  # тело
+
+        # Еда
         self.food = self._spawn_food()
+        self.grid[self.food[1], self.food[0]] = 2
+
         self.score = 0
         self.steps = 0
+        self.steps_without_food = 0
         self.done = False
+        self.max_steps_without_food = self.width * self.height
+
         return self._get_state()
 
     def _spawn_food(self):
-        empty = [(x, y) for x in range(self.grid_width)
-                 for y in range(self.grid_height) if (x, y) not in self.snake_set]
-        return empty[np.random.randint(len(empty))] if empty else self.snake[-1]
-
-    def _get_direction(self):
-        return self.DIRECTIONS[self.dir_idx]
-
-    def _turn_left(self):
-        self.dir_idx = (self.dir_idx - 1) % 4
-
-    def _turn_right(self):
-        self.dir_idx = (self.dir_idx + 1) % 4
-
-    def _is_danger(self, point):
-        x, y = point
-        if x < 0 or x >= self.grid_width or y < 0 or y >= self.grid_height:
-            return True
-        if point in self.snake_set:
-            return True
-        return False
+        """Случайная позиция для еды"""
+        empty = []
+        for y in range(1, self.height - 1):
+            for x in range(1, self.width - 1):
+                if self.grid[y, x] == 0:
+                    empty.append((x, y))
+        if empty:
+            idx = np.random.randint(len(empty))
+            return empty[idx]
+        return self.snake[-1]  # если нет места
 
     def _get_state(self):
         """
-        7 признаков (все ОТНОСИТЕЛЬНЫЕ к направлению змейки):
-        - 3: опасность (прямо, слева, справа)
-        - 4: еда (впереди, слева, справа, сзади)
+        32 сенсора:
+        - 8 направлений × 3 типа (стена, яблоко, хвост) = 24
+        - 4 сектора где яблоко (вверх, вниз, влево, вправо)
+        - 4 расстояния до яблока по направлениям
         """
-        head = self.snake[0]
+        head_x, head_y = self.snake[0]
+        food_x, food_y = self.food
 
-        # Относительные направления
-        dir_forward = self.DIRECTIONS[self.dir_idx]
-        dir_left = self.DIRECTIONS[(self.dir_idx - 1) % 4]
-        dir_right = self.DIRECTIONS[(self.dir_idx + 1) % 4]
-        dir_back = self.DIRECTIONS[(self.dir_idx + 2) % 4]
+        state = []
 
-        # Опасность в 1 клетке
-        danger_forward = self._is_danger((head[0] + dir_forward[0], head[1] + dir_forward[1]))
-        danger_left = self._is_danger((head[0] + dir_left[0], head[1] + dir_left[1]))
-        danger_right = self._is_danger((head[0] + dir_right[0], head[1] + dir_right[1]))
+        # 8 лучей: расстояние до стены, яблока, хвоста
+        for dx, dy in self.DIRECTIONS:
+            dist_wall = 0
+            dist_food = 0
+            dist_body = 0
 
-        # Вектор к еде
-        food_dx = self.food[0] - head[0]
-        food_dy = self.food[1] - head[1]
+            x, y = head_x, head_y
+            distance = 0
 
-        # Проверяем направление к еде ОТНОСИТЕЛЬНО змейки
-        # Скалярное произведение вектора к еде и направления
-        def dot(d):
-            return food_dx * d[0] + food_dy * d[1]
+            while True:
+                x += dx
+                y += dy
+                distance += 1
 
-        food_forward = dot(dir_forward) > 0  # Еда впереди
-        food_left = dot(dir_left) > 0        # Еда слева
-        food_right = dot(dir_right) > 0      # Еда справа
-        food_back = dot(dir_back) > 0        # Еда сзади
+                # Вышли за границы
+                if x < 0 or x >= self.width or y < 0 or y >= self.height:
+                    dist_wall = 1.0 / distance
+                    break
 
-        state = np.array([
-            danger_forward, danger_left, danger_right,
-            food_forward, food_left, food_right, food_back
-        ], dtype=np.float32)
+                cell = self.grid[y, x]
 
-        return state
+                if cell == 4:  # стена
+                    dist_wall = 1.0 / distance
+                    break
+                elif cell == 2 and dist_food == 0:  # яблоко
+                    dist_food = 1.0 / distance
+                elif cell == 1 and dist_body == 0:  # тело
+                    dist_body = 1.0 / distance
+                    break  # хвост блокирует обзор
+
+            state.extend([dist_wall, dist_food, dist_body])
+
+        # Сектор яблока (бинарные)
+        state.append(1.0 if food_y < head_y else 0.0)  # яблоко выше
+        state.append(1.0 if food_y > head_y else 0.0)  # яблоко ниже
+        state.append(1.0 if food_x < head_x else 0.0)  # яблоко слева
+        state.append(1.0 if food_x > head_x else 0.0)  # яблоко справа
+
+        # Расстояние до яблока (нормализованное)
+        dx_food = food_x - head_x
+        dy_food = food_y - head_y
+        max_dist = self.width + self.height
+
+        state.append(max(0, -dy_food) / max_dist)  # расстояние вверх
+        state.append(max(0, dy_food) / max_dist)   # расстояние вниз
+        state.append(max(0, -dx_food) / max_dist)  # расстояние влево
+        state.append(max(0, dx_food) / max_dist)   # расстояние вправо
+
+        return np.array(state, dtype=np.float32)
 
     def step(self, action):
-        """action: 0=прямо, 1=влево, 2=вправо"""
+        """
+        action: 0=вверх, 1=вниз, 2=влево, 3=вправо
+        """
+        if self.done:
+            return self._get_state(), 0, True
+
         self.steps += 1
+        self.steps_without_food += 1
 
-        if action == 1:
-            self._turn_left()
-        elif action == 2:
-            self._turn_right()
+        # Направление
+        dx, dy = self.ACTIONS[action]
+        head_x, head_y = self.snake[0]
+        new_x, new_y = head_x + dx, head_y + dy
 
-        direction = self._get_direction()
-        head = self.snake[0]
-        new_head = (head[0] + direction[0], head[1] + direction[1])
-
-        # Смерть
-        if self._is_danger(new_head):
+        # Проверка столкновения
+        if (new_x < 0 or new_x >= self.width or
+            new_y < 0 or new_y >= self.height):
             self.done = True
-            return self._get_state(), -10.0, True
+            return self._get_state(), -1, True
 
-        self.snake.insert(0, new_head)
-        self.snake_set.add(new_head)
+        cell = self.grid[new_y, new_x]
+
+        if cell == 4 or cell == 1:  # стена или тело
+            self.done = True
+            return self._get_state(), -1, True
+
+        # Голодная смерть
+        if self.steps_without_food >= self.max_steps_without_food:
+            self.done = True
+            return self._get_state(), -1, True
+
+        # Обновляем старую голову на тело
+        self.grid[head_y, head_x] = 1
+
+        # Двигаем змейку
+        self.snake.insert(0, (new_x, new_y))
+        self.grid[new_y, new_x] = 7  # новая голова
 
         # Еда
-        if new_head == self.food:
+        reward = 0
+        if cell == 2:
             self.score += 1
-            self.steps = 0
+            self.steps_without_food = 0
+            reward = 1
 
-            if len(self.snake) >= self.grid_width * self.grid_height:
+            # Победа?
+            if len(self.snake) >= (self.width - 2) * (self.height - 2):
                 self.done = True
-                return self._get_state(), 100.0, True
+                return self._get_state(), 10, True
 
+            # Новая еда
             self.food = self._spawn_food()
-            return self._get_state(), 10.0, False
+            self.grid[self.food[1], self.food[0]] = 2
+        else:
+            # Убираем хвост
+            tail = self.snake.pop()
+            self.grid[tail[1], tail[0]] = 0
 
-        # Обычный шаг
-        tail = self.snake.pop()
-        self.snake_set.remove(tail)
-
-        # Таймаут
-        if self.steps > 100 * len(self.snake):
-            self.done = True
-            return self._get_state(), -10.0, True
-
-        return self._get_state(), 0.0, False
+        return self._get_state(), reward, False
 
     def get_score(self):
         return self.score
 
     def is_win(self):
-        return len(self.snake) >= self.grid_width * self.grid_height
+        return len(self.snake) >= (self.width - 2) * (self.height - 2)
 
     @property
     def direction(self):
-        return self._get_direction()
+        """Текущее направление (для визуализации)"""
+        if len(self.snake) < 2:
+            return (1, 0)
+        head = self.snake[0]
+        neck = self.snake[1]
+        return (head[0] - neck[0], head[1] - neck[1])

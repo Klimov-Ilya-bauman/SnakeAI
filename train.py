@@ -1,5 +1,5 @@
 """
-Обучение змейки v6.
+Обучение DQN агента - по статье Mnih et al. 2013/2015.
 """
 import os
 import numpy as np
@@ -16,11 +16,24 @@ def train(episodes=5000):
     log_dir = f"logs/{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     writer = tf.summary.create_file_writer(log_dir)
 
+    print("=" * 60)
+    print("DQN Training - по статье Mnih et al. 2013/2015")
+    print("=" * 60)
     print(f"📊 tensorboard --logdir=logs")
     print()
 
     env = SnakeEnv()
     agent = DQNAgent(state_size=11, action_size=3)
+
+    # Вывод гиперпараметров
+    print(f"Гиперпараметры:")
+    print(f"  γ (gamma):        {agent.gamma}")
+    print(f"  Learning rate:    {agent.learning_rate}")
+    print(f"  Batch size:       {agent.batch_size}")
+    print(f"  Memory size:      {agent.memory_size}")
+    print(f"  ε decay steps:    {agent.epsilon_decay_steps}")
+    print(f"  Target update:    каждые {agent.target_update_freq} шагов")
+    print()
 
     scores = []
     best = 0
@@ -29,6 +42,7 @@ def train(episodes=5000):
     for ep in range(1, episodes + 1):
         state = env.reset()
         total_reward = 0
+        steps = 0
 
         while not env.done:
             action = agent.act(state)
@@ -36,15 +50,16 @@ def train(episodes=5000):
             agent.remember(state, action, reward, next_state, done)
             state = next_state
             total_reward += reward
+            steps += 1
 
+            # Обучение на каждом шаге (как в статье)
             agent.replay()
+
+            # Линейный epsilon decay на каждом шаге (как в статье)
+            agent.step_epsilon()
 
         score = env.get_score()
         scores.append(score)
-        agent.decay_epsilon()
-
-        if ep % 10 == 0:
-            agent.update_target_model()
 
         avg = np.mean(scores[-100:]) if len(scores) >= 100 else np.mean(scores)
 
@@ -62,9 +77,11 @@ def train(episodes=5000):
             tf.summary.scalar('avg_100', avg, step=ep)
             tf.summary.scalar('epsilon', agent.epsilon, step=ep)
             tf.summary.scalar('reward', total_reward, step=ep)
+            tf.summary.scalar('steps', steps, step=ep)
 
         if ep % 50 == 0:
-            print(f"Ep {ep:5d} | Score: {score:2d} | Avg: {avg:5.2f} | Best: {best} | ε: {agent.epsilon:.3f}")
+            print(f"Ep {ep:5d} | Score: {score:2d} | Avg: {avg:5.2f} | "
+                  f"Best: {best} | ε: {agent.epsilon:.3f} | Steps: {agent.total_steps}")
 
         if ep % 500 == 0:
             agent.save(f"models/checkpoint_{ep}.keras")

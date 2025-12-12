@@ -145,24 +145,30 @@ class SnakePlayer:
 
 def find_weights():
     """Найти файл с весами"""
-    # Из БД
+    # Создаём папку если нет
+    os.makedirs("models", exist_ok=True)
+
+    # Сначала проверяем файлы (они приоритетнее - могут быть свежее)
+    patterns = ["models/best_record_*.npy", "models/best_*.npy", "models/*.npy"]
+    for pattern in patterns:
+        files = glob.glob(pattern)
+        if files:
+            # Сортируем по времени модификации, берём самый новый
+            latest = max(files, key=os.path.getmtime)
+            return latest
+
+    # Если файлов нет - загружаем из БД
     try:
         db = SnakeDatabase()
         weights = db.get_best_weights()
         db.close()
         if weights is not None:
-            # Сохраняем временно
-            np.save("models/temp_best.npy", weights)
-            return "models/temp_best.npy"
-    except:
-        pass
-
-    # Из файлов
-    patterns = ["models/best_*.npy", "models/best_gen_*.npy", "models/*.npy"]
-    for pattern in patterns:
-        files = glob.glob(pattern)
-        if files:
-            return sorted(files)[-1]
+            temp_path = "models/from_db_best.npy"
+            np.save(temp_path, weights)
+            print(f"Loaded best weights from database (score info in DB)")
+            return temp_path
+    except Exception as e:
+        print(f"DB load error: {e}")
 
     return None
 

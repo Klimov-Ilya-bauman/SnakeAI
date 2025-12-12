@@ -181,7 +181,6 @@ def train(epochs=500,
     if best_net:
         os.makedirs("models", exist_ok=True)
         weights_path = f"models/best_{name}.npy"
-        import numpy as np
         np.save(weights_path, ga.best_weights)
         print(f"Веса сохранены: {weights_path}")
 

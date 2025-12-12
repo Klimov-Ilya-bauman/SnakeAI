@@ -2,12 +2,12 @@
 Обучение змейки генетическим алгоритмом.
 По мотивам статьи: https://habr.com/ru/articles/773288/
 
++ Многопоточность (multiprocessing)
 + Один информативный TensorBoard график
 """
 import os
 
-# ВАЖНО: Отключаем GPU/Metal ДО импорта TensorFlow (для Mac M1/M2)
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+# Отключаем лишние логи TensorFlow (используется только для TensorBoard)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import time
@@ -92,6 +92,7 @@ def train(epochs=500,
     print("Создание начальной популяции...")
     ga.create_initial_population()
     print(f"Создано {len(ga.population)} змеек")
+    print(f"Процессов: {ga.num_workers}")
     print()
 
     best_ever = 0

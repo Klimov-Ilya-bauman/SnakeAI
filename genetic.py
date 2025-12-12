@@ -7,19 +7,31 @@
 - Скрещивание (crossover)
 - Мутация
 
-+ Последовательная обработка (стабильно на всех платформах)
++ Многопоточность через multiprocessing (NumPy освобождает GIL)
 """
-import os
-
-# ВАЖНО: Отключаем GPU/Metal ДО импорта TensorFlow
-# Нужно для стабильной работы на Mac M1/M2
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
 import numpy as np
+from multiprocessing import Pool, cpu_count
 
 from env import SnakeEnv
 from neural_network import SnakeNetwork
+
+
+def _evaluate_snake_worker(args):
+    """
+    Воркер для оценки одной змейки в отдельном процессе.
+    """
+    weights, grid_size, layer_sizes = args
+
+    env = SnakeEnv(grid_size, grid_size)
+    net = SnakeNetwork(layer_sizes)
+    net.set_weights_flat(weights)
+
+    state = env.reset()
+    while not env.done:
+        action = net.predict(state)
+        state, _, _ = env.step(action)
+
+    return env.get_score(), env.steps, env.is_win()
 
 
 class GeneticAlgorithm:
@@ -29,12 +41,14 @@ class GeneticAlgorithm:
                  mutation_rate=0.05,
                  crossover_ratio=0.7,
                  layer_sizes=(32, 12, 8, 4),
-                 grid_size=10):
+                 grid_size=10,
+                 num_workers=None):
         """
         population_size: размер популяции
         top_k: сколько лучших отбираем
         mutation_rate: вероятность мутации гена
         crossover_ratio: вероятность взять ген от первого родителя (70/30)
+        num_workers: количество процессов (по умолчанию = CPU cores)
         """
         self.population_size = population_size
         self.top_k = top_k
@@ -42,6 +56,7 @@ class GeneticAlgorithm:
         self.crossover_ratio = crossover_ratio
         self.layer_sizes = layer_sizes
         self.grid_size = grid_size
+        self.num_workers = num_workers or cpu_count()
 
         self.population = []
         self.generation = 0
@@ -67,25 +82,21 @@ class GeneticAlgorithm:
             })
         self.generation = 0
 
-    def _evaluate_snake(self, weights):
-        """Оценка одной змейки"""
-        env = SnakeEnv(self.grid_size, self.grid_size)
-        net = SnakeNetwork(self.layer_sizes)
-        net.set_weights_flat(weights)
-
-        state = env.reset()
-        while not env.done:
-            action = net.predict(state)
-            state, _, _ = env.step(action)
-
-        return env.get_score(), env.steps, env.is_win()
-
     def evaluate_population(self):
-        """Оценка всей популяции"""
-        wins_this_gen = 0
+        """Оценка всей популяции с многопоточностью"""
+        # Подготавливаем аргументы для воркеров
+        args = [
+            (p['weights'], self.grid_size, self.layer_sizes)
+            for p in self.population
+        ]
 
-        for i, p in enumerate(self.population):
-            score, steps, win = self._evaluate_snake(p['weights'])
+        # Параллельная обработка
+        with Pool(processes=self.num_workers) as pool:
+            results = pool.map(_evaluate_snake_worker, args)
+
+        # Обновляем результаты
+        wins_this_gen = 0
+        for i, (score, steps, win) in enumerate(results):
             self.population[i]['score'] = score
             self.population[i]['steps'] = steps
             self.population[i]['win'] = win

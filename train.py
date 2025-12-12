@@ -2,12 +2,12 @@
 Обучение змейки генетическим алгоритмом.
 По мотивам статьи: https://habr.com/ru/articles/773288/
 
++ Многопоточность (multiprocessing)
 + Один информативный TensorBoard график
 """
 import os
 
-# ВАЖНО: Отключаем GPU/Metal ДО импорта TensorFlow (для Mac M1/M2)
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+# Отключаем лишние логи TensorFlow (используется только для TensorBoard)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import time
@@ -63,8 +63,8 @@ def train(epochs=500,
         layer_sizes=layer_sizes
     )
 
-    # Для победы на 10x10 нужно 64 очка (8x8 внутренних клеток)
-    win_score = (grid_size - 2) ** 2
+    # Для победы на 10x10 нужно 98 очков (100 клеток - 2 начальных)
+    win_score = grid_size * grid_size - 2  # съесть 98 яблок
 
     print("=" * 60)
     print("Генетический алгоритм - Snake AI")
@@ -92,6 +92,7 @@ def train(epochs=500,
     print("Создание начальной популяции...")
     ga.create_initial_population()
     print(f"Создано {len(ga.population)} змеек")
+    print(f"Процессов: {ga.num_workers}")
     print()
 
     best_ever = 0
@@ -181,7 +182,6 @@ def train(epochs=500,
     if best_net:
         os.makedirs("models", exist_ok=True)
         weights_path = f"models/best_{name}.npy"
-        import numpy as np
         np.save(weights_path, ga.best_weights)
         print(f"Веса сохранены: {weights_path}")
 

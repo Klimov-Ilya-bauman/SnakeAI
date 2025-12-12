@@ -51,18 +51,8 @@ class SnakePlayer:
         for y in range(0, HEIGHT, GRID_SIZE):
             pygame.draw.line(self.screen, GRID, (0, y), (WIDTH, y))
 
-        # Стены (по периметру)
-        wall_color = (100, 100, 100)
-        for x in range(self.grid_w):
-            pygame.draw.rect(self.screen, wall_color,
-                           (x * GRID_SIZE, 0, GRID_SIZE - 1, GRID_SIZE - 1))
-            pygame.draw.rect(self.screen, wall_color,
-                           (x * GRID_SIZE, (self.grid_h - 1) * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1))
-        for y in range(self.grid_h):
-            pygame.draw.rect(self.screen, wall_color,
-                           (0, y * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1))
-            pygame.draw.rect(self.screen, wall_color,
-                           ((self.grid_w - 1) * GRID_SIZE, y * GRID_SIZE, GRID_SIZE - 1, GRID_SIZE - 1))
+        # Граница поля (красная рамка - за ней смерть)
+        pygame.draw.rect(self.screen, (150, 50, 50), (0, 0, WIDTH, HEIGHT), 3)
 
         # Змейка
         for i, (x, y) in enumerate(self.env.snake):

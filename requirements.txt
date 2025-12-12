@@ -1,0 +1,7 @@
+tensorflow-macos>=2.13.0  # Для Mac M-серии
+tensorflow-metal>=1.0.0   # GPU ускорение на Mac
+pygame>=2.5.0
+numpy>=1.24.0
+
+# Для визуализации
+tensorboard>=2.13.0

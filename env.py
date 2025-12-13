@@ -142,6 +142,13 @@ class SnakeEnv:
 
         # Направление
         dx, dy = self.ACTIONS[action]
+
+        # Запрет на движение назад (иначе мгновенная смерть)
+        current_dir = self.direction
+        if (dx, dy) == (-current_dir[0], -current_dir[1]):
+            # Пытается идти назад - продолжаем в текущем направлении
+            dx, dy = current_dir
+
         head_x, head_y = self.snake[0]
         new_x, new_y = head_x + dx, head_y + dy
 

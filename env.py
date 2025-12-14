@@ -1,6 +1,6 @@
 """
-Среда змейки с 42 сенсорами (8 лучей + доп. информация).
-По мотивам статьи: https://habr.com/ru/articles/773288/
+Среда змейки для DQN обучения.
+42 сенсора + reward shaping для эффективного обучения.
 
 Сенсоры:
   - 8 лучей × 3 (стена, еда, тело) = 24
@@ -10,12 +10,13 @@
   - 4 безопасность соседних клеток = 4
   Итого: 42
 
-Матрица мира:
-  0 = пусто
-  1 = тело змейки
-  2 = еда
-  4 = стена
-  7 = голова
+Награды (для RL):
+  +10  - съел еду
+  -10  - столкновение (стена/тело)
+  +0.1 - приблизился к еде
+  -0.1 - отдалился от еды
+  -5   - голодная смерть (слишком долго без еды)
+  +100 - победа
 """
 import numpy as np
 from config import GRID_WIDTH, GRID_HEIGHT
@@ -65,7 +66,15 @@ class SnakeEnv:
         self.done = False
         self.max_steps_without_food = self.width * self.height
 
+        # Для reward shaping
+        self._prev_distance = self._manhattan_distance()
+
         return self._get_state()
+
+    def _manhattan_distance(self):
+        """Манхэттенское расстояние до еды"""
+        head = self.snake[0]
+        return abs(head[0] - self.food[0]) + abs(head[1] - self.food[1])
 
     def _spawn_food(self):
         """Случайная позиция для еды (на всём поле 10x10)"""
@@ -171,6 +180,9 @@ class SnakeEnv:
     def step(self, action):
         """
         action: 0=вверх, 1=вниз, 2=влево, 3=вправо
+
+        Returns: (state, reward, done)
+        Reward shaping для эффективного RL обучения.
         """
         if self.done:
             return self._get_state(), 0, True
@@ -190,22 +202,23 @@ class SnakeEnv:
         head_x, head_y = self.snake[0]
         new_x, new_y = head_x + dx, head_y + dy
 
-        # Проверка столкновения
+        # Проверка столкновения со стеной
         if (new_x < 0 or new_x >= self.width or
             new_y < 0 or new_y >= self.height):
             self.done = True
-            return self._get_state(), -1, True
+            return self._get_state(), -10, True  # Штраф за столкновение
 
         cell = self.grid[new_y, new_x]
 
-        if cell == 1:  # тело (стен внутри нет, границы проверены выше)
+        # Проверка столкновения с телом
+        if cell == 1:
             self.done = True
-            return self._get_state(), -1, True
+            return self._get_state(), -10, True  # Штраф за столкновение
 
         # Голодная смерть
         if self.steps_without_food >= self.max_steps_without_food:
             self.done = True
-            return self._get_state(), -1, True
+            return self._get_state(), -5, True  # Меньший штраф за голод
 
         # Обновляем старую голову на тело
         self.grid[head_y, head_x] = 1
@@ -215,26 +228,37 @@ class SnakeEnv:
         self.grid[new_y, new_x] = 7  # новая голова
 
         # Еда
-        reward = 0
         if cell == 2:
             self.score += 1
             self.steps_without_food = 0
-            reward = 1
 
             # Победа? (заполнили всё поле 10x10 = 100 клеток)
             if len(self.snake) >= self.width * self.height:
                 self.done = True
-                return self._get_state(), 10, True
+                return self._get_state(), 100, True  # Большая награда за победу!
 
             # Новая еда
             self.food = self._spawn_food()
             self.grid[self.food[1], self.food[0]] = 2
+            self._prev_distance = self._manhattan_distance()
+
+            return self._get_state(), 10, False  # Награда за еду
         else:
             # Убираем хвост
             tail = self.snake.pop()
             self.grid[tail[1], tail[0]] = 0
 
-        return self._get_state(), reward, False
+            # Reward shaping: приближение к еде
+            curr_distance = self._manhattan_distance()
+            if curr_distance < self._prev_distance:
+                reward = 0.1  # Приблизились
+            elif curr_distance > self._prev_distance:
+                reward = -0.1  # Отдалились
+            else:
+                reward = 0  # Расстояние не изменилось
+
+            self._prev_distance = curr_distance
+            return self._get_state(), reward, False
 
     def get_score(self):
         return self.score

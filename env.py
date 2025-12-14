@@ -73,10 +73,11 @@ class SnakeEnv:
 
     def _get_state(self):
         """
-        32 сенсора:
+        36 сенсоров:
         - 8 направлений × 3 типа (стена, яблоко, хвост) = 24
         - 4 сектора где яблоко (вверх, вниз, влево, вправо)
         - 4 расстояния до яблока по направлениям
+        - 4 текущее направление движения (one-hot)
         """
         head_x, head_y = self.snake[0]
         food_x, food_y = self.food
@@ -127,6 +128,13 @@ class SnakeEnv:
         state.append(max(0, dy_food) / max_dist)   # расстояние вниз
         state.append(max(0, -dx_food) / max_dist)  # расстояние влево
         state.append(max(0, dx_food) / max_dist)   # расстояние вправо
+
+        # Текущее направление движения (one-hot: вверх, вниз, влево, вправо)
+        current_dir = self.direction
+        state.append(1.0 if current_dir == (0, -1) else 0.0)  # вверх
+        state.append(1.0 if current_dir == (0, 1) else 0.0)   # вниз
+        state.append(1.0 if current_dir == (-1, 0) else 0.0)  # влево
+        state.append(1.0 if current_dir == (1, 0) else 0.0)   # вправо
 
         return np.array(state, dtype=np.float32)
 

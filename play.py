@@ -27,7 +27,8 @@ class SnakePlayer:
         self.font = pygame.font.SysFont('arial', 18)
 
         self.env = SnakeEnv(self.grid_w, self.grid_h)
-        self.net = SnakeNetwork((32, 12, 8, 4))
+        # Новая архитектура: 36 входов (с направлением) → 20 → 12 → 4
+        self.net = SnakeNetwork((36, 20, 12, 4))
 
         # Загрузка весов
         if weights_path and os.path.exists(weights_path):

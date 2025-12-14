@@ -43,9 +43,10 @@ def find_best_weights():
 def train(epochs=500,
           population_size=2000,
           top_k=20,
-          mutation_rate=0.05,
+          mutation_rate=0.15,
+          mutation_strength=0.3,
           grid_size=10,
-          layer_sizes=(32, 12, 8, 4),
+          layer_sizes=(36, 20, 12, 4),
           save_every=10,
           use_tensorboard=True,
           continue_training=True,
@@ -109,6 +110,7 @@ def train(epochs=500,
         population_size=population_size,
         top_k=top_k,
         mutation_rate=mutation_rate,
+        mutation_strength=mutation_strength,
         layer_sizes=layer_sizes,
         grid_size=grid_size
     )
@@ -227,11 +229,13 @@ def train(epochs=500,
 
 if __name__ == "__main__":
     # Параметры для победы на 10x10
-    # Большая популяция + больше поколений = больше шансов найти хорошее решение
+    # Улучшенная версия с soft mutation и сохранением разнообразия
     train(
-        epochs=500,           # Больше поколений
+        epochs=10000,          # Больше поколений
         population_size=2000,  # Большая популяция
-        top_k=20,             # Больше лучших для разнообразия
-        mutation_rate=0.05,   # 5% мутаций
-        grid_size=10          # Поле 10x10
+        top_k=20,              # Лучших для разнообразия
+        mutation_rate=0.15,    # 15% генов мутируют
+        mutation_strength=0.3, # Сила мутации (std шума)
+        grid_size=10,          # Поле 10x10
+        continue_training=False  # ВАЖНО: новая архитектура, начинаем заново!
     )

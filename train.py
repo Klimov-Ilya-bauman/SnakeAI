@@ -41,12 +41,13 @@ def find_best_weights():
 
 
 def train(epochs=500,
-          population_size=2000,
+          population_size=1000,
           top_k=20,
           mutation_rate=0.15,
           mutation_strength=0.3,
           grid_size=10,
           layer_sizes=(36, 20, 12, 4),
+          num_games=5,
           save_every=10,
           use_tensorboard=True,
           continue_training=True,
@@ -101,6 +102,7 @@ def train(epochs=500,
     print(f"Отбор: TOP-{top_k}")
     print(f"Мутация: {mutation_rate * 100}%")
     print(f"Сеть: {' -> '.join(map(str, layer_sizes))}")
+    print(f"Игр на оценку: {num_games} (отбор по минимуму)")
     print(f"Эпох: {epochs}")
     print("=" * 60)
     print()
@@ -112,7 +114,8 @@ def train(epochs=500,
         mutation_rate=mutation_rate,
         mutation_strength=mutation_strength,
         layer_sizes=layer_sizes,
-        grid_size=grid_size
+        grid_size=grid_size,
+        num_games=num_games
     )
 
     # Загрузка лучших весов (если есть и continue_training=True)
@@ -228,14 +231,15 @@ def train(epochs=500,
 
 
 if __name__ == "__main__":
-    # Параметры для победы на 10x10
-    # Улучшенная версия с soft mutation и сохранением разнообразия
+    # Параметры для стабильной победы на 10x10
+    # Multi-game evaluation: отбор по минимальному результату из N игр
     train(
         epochs=10000,          # Больше поколений
-        population_size=2000,  # Большая популяция
+        population_size=1000,  # Меньше (каждая играет num_games раз)
         top_k=20,              # Лучших для разнообразия
         mutation_rate=0.15,    # 15% генов мутируют
         mutation_strength=0.3, # Сила мутации (std шума)
         grid_size=10,          # Поле 10x10
-        continue_training=False  # ВАЖНО: новая архитектура, начинаем заново!
+        num_games=5,           # 5 игр на оценку (стабильность!)
+        continue_training=True # Продолжаем с лучших весов
     )

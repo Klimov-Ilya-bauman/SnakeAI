@@ -1,6 +1,14 @@
 """
-Среда змейки с 32 сенсорами (8 лучей).
+Среда змейки с 42 сенсорами (8 лучей + доп. информация).
 По мотивам статьи: https://habr.com/ru/articles/773288/
+
+Сенсоры:
+  - 8 лучей × 3 (стена, еда, тело) = 24
+  - 4 сектора яблока + 4 расстояния = 8
+  - 4 направление движения (one-hot) = 4
+  - 2 информация о змейке (длина, плотность) = 2
+  - 4 безопасность соседних клеток = 4
+  Итого: 42
 
 Матрица мира:
   0 = пусто
@@ -73,11 +81,13 @@ class SnakeEnv:
 
     def _get_state(self):
         """
-        36 сенсоров:
+        42 сенсора:
         - 8 направлений × 3 типа (стена, яблоко, хвост) = 24
         - 4 сектора где яблоко (вверх, вниз, влево, вправо)
         - 4 расстояния до яблока по направлениям
         - 4 текущее направление движения (one-hot)
+        - 2 информация о змейке (длина, плотность)
+        - 4 безопасность соседних клеток (можно ли туда идти)
         """
         head_x, head_y = self.snake[0]
         food_x, food_y = self.food
@@ -135,6 +145,26 @@ class SnakeEnv:
         state.append(1.0 if current_dir == (0, 1) else 0.0)   # вниз
         state.append(1.0 if current_dir == (-1, 0) else 0.0)  # влево
         state.append(1.0 if current_dir == (1, 0) else 0.0)   # вправо
+
+        # === НОВЫЕ СЕНСОРЫ для длинной змейки ===
+
+        # Длина змейки (нормализованная)
+        max_length = self.width * self.height
+        state.append(len(self.snake) / max_length)
+
+        # Плотность заполнения поля
+        state.append(len(self.snake) / max_length)
+
+        # Безопасность соседних клеток (4 направления: вверх, вниз, влево, вправо)
+        # 1.0 = безопасно (можно идти), 0.0 = опасно (стена или тело)
+        for dx, dy in self.ACTIONS:
+            nx, ny = head_x + dx, head_y + dy
+            if nx < 0 or nx >= self.width or ny < 0 or ny >= self.height:
+                state.append(0.0)  # стена
+            elif self.grid[ny, nx] == 1:
+                state.append(0.0)  # тело
+            else:
+                state.append(1.0)  # безопасно
 
         return np.array(state, dtype=np.float32)
 

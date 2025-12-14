@@ -46,7 +46,7 @@ def train(epochs=500,
           mutation_rate=0.15,
           mutation_strength=0.3,
           grid_size=10,
-          layer_sizes=(36, 20, 12, 4),
+          layer_sizes=(42, 28, 16, 4),
           num_games=5,
           save_every=10,
           use_tensorboard=True,
@@ -125,11 +125,19 @@ def train(epochs=500,
     if continue_training:
         weights_path, prev_score = find_best_weights()
         if weights_path:
-            seed_weights = np.load(weights_path)
-            best_ever = prev_score
-            print(f">>> ПРОДОЛЖЕНИЕ ОБУЧЕНИЯ <<<")
-            print(f"Загружены веса: {weights_path}")
-            print(f"Предыдущий рекорд: {prev_score}/{win_score}")
+            loaded_weights = np.load(weights_path)
+            # Проверка совместимости весов с текущей архитектурой
+            expected_weights = ga._num_weights
+            if len(loaded_weights) == expected_weights:
+                seed_weights = loaded_weights
+                best_ever = prev_score
+                print(f">>> ПРОДОЛЖЕНИЕ ОБУЧЕНИЯ <<<")
+                print(f"Загружены веса: {weights_path}")
+                print(f"Предыдущий рекорд: {prev_score}/{win_score}")
+            else:
+                print(f">>> НОВАЯ АРХИТЕКТУРА - ОБУЧЕНИЕ С НУЛЯ <<<")
+                print(f"Старые веса ({len(loaded_weights)}) не совместимы с новой сетью ({expected_weights})")
+                print(f"Архитектура: {' -> '.join(map(str, layer_sizes))}")
             print()
 
     # Начальная популяция
@@ -240,6 +248,7 @@ def train(epochs=500,
 if __name__ == "__main__":
     # Параметры для стабильной победы на 10x10
     # Multi-game evaluation: отбор по минимальному результату из N игр
+    # НОВАЯ АРХИТЕКТУРА: 42 входа (6 новых сенсоров для длинной змейки)
     train(
         epochs=10000,          # Больше поколений
         population_size=1000,  # Меньше (каждая играет num_games раз)
@@ -247,6 +256,7 @@ if __name__ == "__main__":
         mutation_rate=0.15,    # 15% генов мутируют
         mutation_strength=0.3, # Сила мутации (std шума)
         grid_size=10,          # Поле 10x10
+        layer_sizes=(42, 28, 16, 4),  # Новая архитектура: +6 сенсоров, больше нейронов
         num_games=5,           # 5 игр на оценку (стабильность!)
-        continue_training=True # Продолжаем с лучших весов
+        continue_training=True # Продолжаем с лучших весов (если совместимы)
     )

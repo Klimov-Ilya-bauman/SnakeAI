@@ -38,21 +38,24 @@ class GeneticAlgorithm:
     def __init__(self,
                  population_size=2000,
                  top_k=20,
-                 mutation_rate=0.05,
+                 mutation_rate=0.15,
+                 mutation_strength=0.3,
                  crossover_ratio=0.7,
-                 layer_sizes=(32, 12, 8, 4),
+                 layer_sizes=(36, 20, 12, 4),
                  grid_size=10,
                  num_workers=None):
         """
         population_size: размер популяции
         top_k: сколько лучших отбираем
         mutation_rate: вероятность мутации гена
+        mutation_strength: сила мутации (std для нормального распределения)
         crossover_ratio: вероятность взять ген от первого родителя (70/30)
         num_workers: количество процессов (по умолчанию = CPU cores)
         """
         self.population_size = population_size
         self.top_k = top_k
         self.mutation_rate = mutation_rate
+        self.mutation_strength = mutation_strength
         self.crossover_ratio = crossover_ratio
         self.layer_sizes = layer_sizes
         self.grid_size = grid_size
@@ -172,14 +175,20 @@ class GeneticAlgorithm:
         return child
 
     def mutate(self, weights):
-        """Мутация"""
+        """
+        Soft mutation - добавляем шум вместо полной замены.
+        Это сохраняет хорошие решения, слегка их модифицируя.
+        """
         mask = np.random.random(len(weights)) < self.mutation_rate
-        mutations = np.random.uniform(-1, 1, len(weights)).astype(np.float32)
-        weights = np.where(mask, mutations, weights).astype(np.float32)
+        # Добавляем гауссов шум вместо полной замены
+        noise = np.random.normal(0, self.mutation_strength, len(weights)).astype(np.float32)
+        weights = weights + mask * noise
+        # Ограничиваем веса в разумных пределах
+        weights = np.clip(weights, -2.0, 2.0).astype(np.float32)
         return weights
 
     def create_new_generation(self, top_snakes):
-        """Создание нового поколения"""
+        """Создание нового поколения с сохранением разнообразия"""
         new_population = []
 
         # 1. Копии лучших (элита) - без мутаций
@@ -212,6 +221,28 @@ class GeneticAlgorithm:
                         'steps': 0,
                         'win': False
                     })
+
+        # 3. Случайные особи для разнообразия (10% популяции)
+        random_count = self.population_size // 10
+        for _ in range(random_count):
+            weights = np.random.uniform(-1, 1, self._num_weights).astype(np.float32)
+            new_population.append({
+                'weights': weights,
+                'score': 0,
+                'steps': 0,
+                'win': False
+            })
+
+        # 4. Дополняем мутациями лучших до нужного размера
+        while len(new_population) < self.population_size:
+            parent = top_snakes[np.random.randint(len(top_snakes))]
+            mutated = self.mutate(parent['weights'].copy())
+            new_population.append({
+                'weights': mutated,
+                'score': 0,
+                'steps': 0,
+                'win': False
+            })
 
         self.population = new_population
         self.generation += 1

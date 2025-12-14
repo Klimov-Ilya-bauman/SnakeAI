@@ -170,6 +170,9 @@ def train(epochs=500,
                 tf.summary.scalar('wins/this_gen', stats['wins_this_gen'], step=stats['generation'])
                 tf.summary.scalar('wins/total', stats['total_wins'], step=stats['generation'])
                 tf.summary.scalar('population', stats['population_size'], step=stats['generation'])
+                # Adaptive mutation метрики
+                tf.summary.scalar('adaptive/mutation_strength', stats.get('mutation_strength', 0.3), step=stats['generation'])
+                tf.summary.scalar('adaptive/plateau_gens', stats.get('plateau_gens', 0), step=stats['generation'])
             writer.flush()
 
         # Новый рекорд - СОХРАНЯЕМ СРАЗУ!
@@ -193,11 +196,15 @@ def train(epochs=500,
             elapsed = time.time() - start_time
             pct = (stats['best_score'] / win_score) * 100
             wins_info = f"Wins: {stats['total_wins']}" if stats['total_wins'] > 0 else ""
+            # Показываем силу мутации если в режиме плато
+            mut_info = ""
+            if stats.get('plateau_gens', 0) > 10:
+                mut_info = f" | Mut: {stats.get('mutation_strength', 0.3):.2f} (plateau: {stats.get('plateau_gens', 0)})"
             print(f"Gen {stats['generation']:4d} | "
                   f"Best: {stats['best_score']:2d}/{win_score} ({pct:5.1f}%) | "
                   f"Avg: {stats['avg_score']:5.1f} | "
                   f"Pop: {stats['population_size']:4d} | "
-                  f"Time: {elapsed:6.0f}s {wins_info}")
+                  f"Time: {elapsed:6.0f}s {wins_info}{mut_info}")
 
         # Ранняя остановка если достигли победы
         if stats['total_wins'] >= 10:

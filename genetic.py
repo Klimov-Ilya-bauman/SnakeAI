@@ -87,6 +87,11 @@ class GeneticAlgorithm:
         self.best_weights = None
         self.wins = 0  # Счётчик побед
 
+        # Adaptive mutation для выхода из плато
+        self.base_mutation_strength = mutation_strength
+        self.generations_without_improvement = 0
+        self.last_best_score = 0
+
         # Создаём шаблонную сеть для получения структуры весов
         self._template_net = SnakeNetwork(layer_sizes)
         self._num_weights = self._template_net.get_total_weights()
@@ -210,8 +215,14 @@ class GeneticAlgorithm:
         return weights
 
     def create_new_generation(self, top_snakes):
-        """Создание нового поколения с сохранением разнообразия"""
+        """Создание нового поколения с сохранением разнообразия и шоком при плато"""
         new_population = []
+
+        # Шок популяции при длительном плато (каждые 50 поколений без улучшения)
+        shock_mode = (self.generations_without_improvement > 0 and
+                      self.generations_without_improvement % 50 == 0)
+        if shock_mode:
+            print(f"*** SHOCK! {self.generations_without_improvement} gens without improvement ***")
 
         # 1. Копии лучших (элита) - без мутаций
         for snake in top_snakes:
@@ -244,8 +255,10 @@ class GeneticAlgorithm:
                         'win': False
                     })
 
-        # 3. Случайные особи для разнообразия (10% популяции)
-        random_count = self.population_size // 10
+        # 3. Случайные особи для разнообразия
+        # При шоке - 30%, обычно - 10%
+        random_ratio = 0.30 if shock_mode else 0.10
+        random_count = int(self.population_size * random_ratio)
         for _ in range(random_count):
             weights = np.random.uniform(-1, 1, self._num_weights).astype(np.float32)
             new_population.append({
@@ -270,7 +283,7 @@ class GeneticAlgorithm:
         self.generation += 1
 
     def evolve(self, callback=None):
-        """Один шаг эволюции"""
+        """Один шаг эволюции с adaptive mutation"""
         # Оценка
         wins_this_gen = self.evaluate_population()
         self.wins += wins_this_gen
@@ -279,25 +292,43 @@ class GeneticAlgorithm:
         top_snakes = self.select_top()
 
         # Обновляем лучший результат
-        if top_snakes[0]['score'] > self.best_score:
-            self.best_score = top_snakes[0]['score']
+        current_best = top_snakes[0]['score']
+        if current_best > self.best_score:
+            self.best_score = current_best
             self.best_weights = top_snakes[0]['weights'].copy()
+
+        # Adaptive mutation: трекинг плато
+        if current_best > self.last_best_score:
+            self.last_best_score = current_best
+            self.generations_without_improvement = 0
+            # Сброс силы мутации при улучшении
+            self.mutation_strength = self.base_mutation_strength
+        else:
+            self.generations_without_improvement += 1
+
+        # Увеличиваем силу мутации при плато
+        if self.generations_without_improvement > 10:
+            # Плавное увеличение каждые 10 поколений без улучшения
+            plateau_factor = 1 + (self.generations_without_improvement - 10) * 0.02
+            self.mutation_strength = min(0.8, self.base_mutation_strength * plateau_factor)
 
         # Статистика
         stats = {
             'generation': self.generation,
-            'best_score': top_snakes[0]['score'],
+            'best_score': current_best,
             'best_steps': top_snakes[0]['steps'],
             'avg_score': np.mean([s['score'] for s in top_snakes]),
             'population_size': len(self.population),
             'wins_this_gen': wins_this_gen,
-            'total_wins': self.wins
+            'total_wins': self.wins,
+            'mutation_strength': self.mutation_strength,
+            'plateau_gens': self.generations_without_improvement
         }
 
         if callback:
             callback(stats, top_snakes)
 
-        # Новое поколение
+        # Новое поколение (с возможным шоком)
         self.create_new_generation(top_snakes)
 
         return stats

@@ -19,19 +19,36 @@ from neural_network import SnakeNetwork
 def _evaluate_snake_worker(args):
     """
     Воркер для оценки одной змейки в отдельном процессе.
+    Запускает несколько игр для оценки стабильности.
     """
-    weights, grid_size, layer_sizes = args
+    weights, grid_size, layer_sizes, num_games = args
 
-    env = SnakeEnv(grid_size, grid_size)
     net = SnakeNetwork(layer_sizes)
     net.set_weights_flat(weights)
 
-    state = env.reset()
-    while not env.done:
-        action = net.predict(state)
-        state, _, _ = env.step(action)
+    scores = []
+    steps_list = []
+    wins = 0
 
-    return env.get_score(), env.steps, env.is_win()
+    for _ in range(num_games):
+        env = SnakeEnv(grid_size, grid_size)
+        state = env.reset()
+        while not env.done:
+            action = net.predict(state)
+            state, _, _ = env.step(action)
+
+        scores.append(env.get_score())
+        steps_list.append(env.steps)
+        if env.is_win():
+            wins += 1
+
+    # Fitness = минимальный score (отбираем стабильных, а не везунчиков)
+    min_score = min(scores)
+    avg_score = sum(scores) / len(scores)
+    total_steps = sum(steps_list)
+
+    # Возвращаем min для отбора, но также avg для статистики
+    return min_score, avg_score, total_steps, wins
 
 
 class GeneticAlgorithm:
@@ -43,6 +60,7 @@ class GeneticAlgorithm:
                  crossover_ratio=0.7,
                  layer_sizes=(36, 20, 12, 4),
                  grid_size=10,
+                 num_games=5,
                  num_workers=None):
         """
         population_size: размер популяции
@@ -50,6 +68,7 @@ class GeneticAlgorithm:
         mutation_rate: вероятность мутации гена
         mutation_strength: сила мутации (std для нормального распределения)
         crossover_ratio: вероятность взять ген от первого родителя (70/30)
+        num_games: количество игр для оценки каждой змейки (для стабильности)
         num_workers: количество процессов (по умолчанию = CPU cores)
         """
         self.population_size = population_size
@@ -59,6 +78,7 @@ class GeneticAlgorithm:
         self.crossover_ratio = crossover_ratio
         self.layer_sizes = layer_sizes
         self.grid_size = grid_size
+        self.num_games = num_games
         self.num_workers = num_workers or cpu_count()
 
         self.population = []
@@ -135,10 +155,10 @@ class GeneticAlgorithm:
         self.generation = 0
 
     def evaluate_population(self):
-        """Оценка всей популяции с многопоточностью"""
+        """Оценка всей популяции с многопоточностью (несколько игр на змейку)"""
         # Подготавливаем аргументы для воркеров
         args = [
-            (p['weights'], self.grid_size, self.layer_sizes)
+            (p['weights'], self.grid_size, self.layer_sizes, self.num_games)
             for p in self.population
         ]
 
@@ -148,12 +168,14 @@ class GeneticAlgorithm:
 
         # Обновляем результаты
         wins_this_gen = 0
-        for i, (score, steps, win) in enumerate(results):
-            self.population[i]['score'] = score
-            self.population[i]['steps'] = steps
-            self.population[i]['win'] = win
-            if win:
-                wins_this_gen += 1
+        for i, (min_score, avg_score, total_steps, wins) in enumerate(results):
+            # Используем min_score для отбора (стабильность важнее пиков)
+            self.population[i]['score'] = min_score
+            self.population[i]['avg_score'] = avg_score
+            self.population[i]['steps'] = total_steps
+            self.population[i]['wins'] = wins
+            self.population[i]['win'] = (wins == self.num_games)  # победа только если все игры выиграны
+            wins_this_gen += wins
 
         return wins_this_gen
 
